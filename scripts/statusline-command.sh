@@ -6,6 +6,8 @@ used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
 
 branch=$(git -C "$dir" --no-optional-locks symbolic-ref --short HEAD 2>/dev/null || git -C "$dir" --no-optional-locks rev-parse --short HEAD 2>/dev/null)
 out="$model | $dir"
+# Docker sandbox (sbx) sets SANDBOX_NAME; flag it in yellow at the front.
+[ -n "${SANDBOX_NAME:-}" ] && out="$(printf '\033[33mIN SBX\033[0m') | $out"
 
 if [ -n "$branch" ]; then
   dirty=""
