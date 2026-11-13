@@ -106,13 +106,13 @@ default `UNITS=imperial`; with `UNITS=metric` the page shows `ºC` and
 | Shown | Source | Format |
 |---|---|---|
 | City heading | `capwords(city)` | `New Haven` |
-| Date | Server's local clock | `Friday, November 13` |
+| Date | Current time in the **city's** time zone (`timezone` offset from call 2) | `Friday, November 13`; Tokyo may already show Saturday |
 | Current temperature | `main.temp` (call 2) | Rounded, `42ºF` (`ºC` if metric) |
-| Condition + icon | `weather[0].main` (call 2) | `Clouds`, icon `static/assets/clouds.png` |
-| Min - max | `main.temp_min`, `main.temp_max` (call 2) | Rounded, `40° - 43°` |
+| Condition + icon | `weather[0].main` (call 2) | `Clouds`, icon `static/assets/clouds.png` (see **Icons** below) |
+| Today's low - high | Lowest `temp_min` and highest `temp_max` of the current reading and the rest of today's forecast readings (calls 2 and 3) | Rounded, `38° - 43°` |
 | Wind | `wind.speed` (call 2) | `5.75 mph` (`meter/sec` if metric) |
-| Forecast, first column | Today's weekday + current conditions | `Fri 42º` |
-| Forecast, next 4 columns | Entries with `dt_txt` ending `12:00:00`, excluding today's date (call 3) | `Sat 34º` |
+| Forecast, first column | Today's weekday (city time) + current conditions | `Fri 41º` |
+| Forecast, next 4 columns | The next 4 days in city time. Readings are grouped by local date (`dt` + `timezone`); each day shows its highest `temp_max` and lowest `temp_min`, and the icon of the reading closest to local noon (call 3) | `Sat 47º 34º` (high, then low, dimmed) |
 
 **Responses**
 
@@ -130,18 +130,19 @@ HTTP/1.1 200 OK
 Content-Type: text/html; charset=utf-8
 
 $ curl -s http://127.0.0.1:5000/New%20Haven | sed -e 's/<[^>]*>/ /g' | tr -s ' \n' ' '
- Weather Forecast CHANGE CITY New Haven Friday, November 13 42ºF Clouds 40° - 43°
- 5.75 mph 5-DAY FORECAST Fri 42º Sat 34º Sun 36º Mon 34º Tue 33º ...
+ Weather Forecast CHANGE CITY New Haven Friday, November 13 41ºF Clouds 38° - 43°
+ 6.91 mph 5-DAY FORECAST Fri 41º Sat 47º 34º Sun 47º 36º Mon 47º 34º Tue 52º 33º ...
 
 $ curl -i http://127.0.0.1:5000/Xyzzyville
 HTTP/1.1 302 FOUND
 Location: /error
 ```
 
-**Icons.** The page loads `static/assets/<condition>.png`, with the condition
-lowercased. Icons exist for `Clear`, `Clouds`, `Drizzle`, `Fog`, `Haze`, `Mist`,
-`Rain`, `Smoke`, `Snow`, `Thunderstorm` and `Tornado`. OpenWeatherMap can also
-return `Dust`, `Sand`, `Ash` and `Squall`, which show a broken image.
+**Icons.** `icon_for()` picks `static/assets/<name>.png` for a condition.
+Eleven conditions have their own icon (`Clear`, `Clouds`, `Drizzle`, `Fog`,
+`Haze`, `Mist`, `Rain`, `Smoke`, `Snow`, `Thunderstorm`, `Tornado`). The other
+four map to a similar one: `Dust` and `Sand` → haze, `Ash` → smoke,
+`Squall` → wind. Anything else falls back to clouds, so an icon is never broken.
 
 ---
 
@@ -195,12 +196,9 @@ images, and the weather icons in `assets/`.
 
 ## Known issues
 
-None of these affects the HTTP interface; they change what a weather page
-shows. See [architecture-overview.md](architecture-overview.md#known-limitations)
-for the full list and [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for symptoms.
+None known in the HTTP interface. Design limitations (no caching, and so on)
+are listed in [architecture-overview.md](architecture-overview.md#known-limitations);
+symptoms and fixes are in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
-| Issue | Effect |
-|---|---|
-| "Today" uses the server's date; forecast "noon" is 12:00 UTC | Wrong date or night-time readings for distant cities |
-| Min/max is the current reading's spread | Not the day's low and high |
-| No icons for `Dust`, `Sand`, `Ash`, `Squall` | Broken image for those conditions |
+Today's low covers the current reading and the *rest* of today: the free
+endpoints don't return readings from earlier in the day.

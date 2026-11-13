@@ -71,6 +71,91 @@ UNITS = load_units(os.getenv("UNITS"))
 app = Flask(__name__)
 
 
+def load_port(value, default=5000):
+    """Parse FLASK_RUN_PORT for `python main.py`; fall back to 5000 with a warning.
+
+    (`flask run` parses the same setting itself and reports bad values.)
+    """
+    if value is None or not value.strip():
+        return default
+    try:
+        port = int(value)
+    except ValueError:
+        port = 0
+    if not 1 <= port <= 65535:
+        log.warning("FLASK_RUN_PORT=%r is not a port number (1-65535); using %d", value, default)
+        return default
+    return port
+
+
+# --- Weather icons ---------------------------------------------------------------
+# static/assets/<name>.png exists for most OpenWeatherMap condition groups.
+# The rest are mapped to the closest icon, and anything unknown gets a generic
+# one, so the page never shows a broken image.
+ICON_NAMES = {
+    f[:-4] for f in os.listdir(os.path.join(app.static_folder, "assets")) if f.endswith(".png")
+}
+ICON_ALIASES = {"dust": "haze", "sand": "haze", "ash": "smoke", "squall": "wind"}
+FALLBACK_ICON = "clouds"
+
+
+def icon_for(condition):
+    """Icon file name (without .png) for a condition such as "Rain" or "Dust"."""
+    name = (condition or "").lower()
+    name = ICON_ALIASES.get(name, name)
+    return name if name in ICON_NAMES else FALLBACK_ICON
+
+
+# --- Time and forecast helpers ---------------------------------------------------
+# OpenWeatherMap timestamps (`dt`) are UTC; each response also gives the city's
+# offset from UTC in seconds (`timezone`). Dates shown on the page are the
+# city's local dates, not the server's.
+
+def utc_now():
+    """The current time in UTC. A function so tests can freeze the clock."""
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def city_time(unix_ts, tz_offset):
+    """Convert a UTC timestamp to the city's local time."""
+    tz = datetime.timezone(datetime.timedelta(seconds=tz_offset))
+    return datetime.datetime.fromtimestamp(unix_ts, tz)
+
+
+def readings_by_local_date(entries, tz_offset):
+    """Group 3-hourly forecast entries by the city's local date.
+
+    Returns {date: [(local_datetime, entry), ...]} in time order.
+    """
+    days = {}
+    for entry in entries:
+        local = city_time(entry["dt"], tz_offset)
+        days.setdefault(local.date(), []).append((local, entry))
+    return days
+
+
+def daily_forecast(days, today, count=4):
+    """One summary per local day after ``today``: label, high, low, condition.
+
+    High and low are the extremes of all the day's readings. The condition
+    (and icon) comes from the reading closest to local noon. The API covers
+    about 5 days from now, so the next 4 days are always complete.
+    """
+    result = []
+    for date in sorted(d for d in days if d > today)[:count]:
+        readings = days[date]
+        _, midday = min(readings, key=lambda r: abs(r[0].hour * 60 + r[0].minute - 12 * 60))
+        condition = midday["weather"][0]["main"]
+        result.append({
+            "day": date.strftime("%a"),
+            "high": round(max(e["main"]["temp_max"] for _, e in readings)),
+            "low": round(min(e["main"]["temp_min"] for _, e in readings)),
+            "weather": condition,
+            "icon": icon_for(condition),
+        })
+    return result
+
+
 class WeatherAPIError(Exception):
     """OpenWeatherMap couldn't be used: no key, network error, HTTP error, or a non-JSON reply."""
 
@@ -142,7 +227,7 @@ def favicon():
 # POST /error fall through to this route as a city named "Error".
 @app.route("/<city>")
 def get_weather(city):
-    """Render current weather and a 4-day noon forecast for ``city``.
+    """Render current weather and a 4-day forecast for ``city``, in its local time.
 
     Redirects to /error when geocoding finds no match. Any API failure (bad
     key, rate limit, network error) raises WeatherAPIError from owm_get(),
@@ -155,10 +240,6 @@ def get_weather(city):
     # "new haven" -> "New Haven", used both for display and for the API query.
     # capwords also trims and collapses extra spaces.
     city_name = string.capwords(city)
-    # Server-local time, not the city's: the date shown can be off by a day
-    # for cities in distant time zones.
-    today = datetime.datetime.now()
-    current_date = today.strftime("%A, %B %d")
 
     # --- 1. Geocoding: city name -> latitude/longitude ----------------------
     # limit=3 asks for up to three matches, but only the first is used, so
@@ -191,36 +272,34 @@ def get_weather(city):
     weather_data = owm_get(OWM_ENDPOINT, weather_params)
 
     current_temp = round(weather_data['main']['temp'])
-    # Condition group such as "Clear" or "Rain". The templates lowercase it to
-    # pick static/assets/<condition>.png.
+    # Condition group such as "Clear" or "Rain"; icon_for() picks its icon.
     current_weather = weather_data['weather'][0]['main']
-    # Min/max of the *current* reading across the city area, not the day's
-    # low/high (that's one of the exercise's bonus challenges).
-    min_temp = round(weather_data['main']['temp_min'])
-    max_temp = round(weather_data['main']['temp_max'])
     wind_speed = weather_data['wind']['speed']
 
     # --- 3. Five-day forecast (one entry every 3 hours) -----------------------
     forecast_data = owm_get(OWM_FORECAST_ENDPOINT, weather_params)
 
-    # Noon forecast for the next four days. Derive the day label from each entry's own
-    # date so labels and data can't drift apart (today's noon entry is absent after 12:00 UTC).
-    # Note: dt_txt is in UTC, so "12:00:00" is noon UTC, not noon in the city.
-    today_str = today.strftime("%Y-%m-%d")
-    forecast = [
-        {
-            "day": datetime.datetime.strptime(item["dt_txt"], "%Y-%m-%d %H:%M:%S").strftime("%a"),
-            "temp": round(item["main"]["temp"]),
-            "weather": item["weather"][0]["main"],
-        }
-        for item in forecast_data["list"]
-        if item["dt_txt"].endswith("12:00:00") and not item["dt_txt"].startswith(today_str)
-    ][:4]
+    # The city's local "now": its date heads the page and decides which
+    # forecast readings belong to today.
+    tz_offset = weather_data.get("timezone", forecast_data.get("city", {}).get("timezone", 0))
+    now = city_time(utc_now().timestamp(), tz_offset)
+    today = now.date()
+    days = readings_by_local_date(forecast_data["list"], tz_offset)
 
-    # today_label heads the first forecast column, which reuses current conditions.
-    return render_template("city.html", city_name=city_name, current_date=current_date, current_temp=current_temp,
-                           current_weather=current_weather, min_temp=min_temp, max_temp=max_temp, wind_speed=wind_speed,
-                           today_label=today.strftime("%a"), forecast=forecast, units=UNIT_LABELS[UNITS])
+    # Today's low/high: the current reading plus the rest of today's forecast.
+    # (Earlier hours of today aren't available from these endpoints.)
+    today_readings = [e for _, e in days.get(today, [])]
+    min_temp = round(min([weather_data['main']['temp_min']] + [e["main"]["temp_min"] for e in today_readings]))
+    max_temp = round(max([weather_data['main']['temp_max']] + [e["main"]["temp_max"] for e in today_readings]))
+
+    forecast = daily_forecast(days, today)
+
+    # today_label heads the first forecast column, which shows current conditions.
+    return render_template("city.html", city_name=city_name, current_date=now.strftime("%A, %B %d"),
+                           current_temp=current_temp, current_weather=current_weather,
+                           current_icon=icon_for(current_weather), min_temp=min_temp, max_temp=max_temp,
+                           wind_speed=wind_speed, today_label=now.strftime("%a"), forecast=forecast,
+                           units=UNIT_LABELS[UNITS])
 
 
 @app.route("/error")
@@ -234,4 +313,4 @@ if __name__ == "__main__":
     # `gunicorn main:app`, which never runs this block.
     # FLASK_RUN_PORT is the same setting `flask run` reads from .env, so both
     # ways of starting the dev server use the same port.
-    app.run(debug=True, port=int(os.getenv("FLASK_RUN_PORT", "5000")))
+    app.run(debug=True, port=load_port(os.getenv("FLASK_RUN_PORT")))

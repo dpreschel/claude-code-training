@@ -5,12 +5,14 @@ strict: once a fix lands, the test passes, pytest reports XPASS as a failure,
 and that's the cue to delete the marker.
 """
 import datetime
+import pathlib
 
 import pytest
 import requests
 
 import main
-from conftest import FakeResponse, forecast_payload, geocode_payload
+from conftest import (FakeResponse, TZ_MOSCOW, TZ_NEW_HAVEN, TZ_TOKYO, current_payload,
+                      forecast_payload, geocode_payload, set_city_timezone)
 
 
 def known_bug(reason):
@@ -69,14 +71,14 @@ class TestCityPage:
         assert "<h1> London </h1>" in html
         assert "3ºF" in html                     # 3.4 rounded
         assert "Clear" in html
-        assert "1° - 5°" in html                 # temp_min 1.2, temp_max 4.6, rounded
+        # Today's low/high: current 1.2-4.6 plus tonight's 21:00 reading (6-8).
+        assert "1° - 8°" in html
         assert "0.79 mph" in html
 
     def test_shows_todays_date_and_weekday(self, client):
-        html = client.get("/London").get_data(as_text=True)
-        today = datetime.datetime.now()
-        assert today.strftime("%A, %B %d") in html
-        assert f"<p> {today.strftime('%a')} </p>" in html
+        html = client.get("/London").get_data(as_text=True)   # clock: Fri 13 Nov, 20:00 UTC
+        assert "Friday, November 13" in html
+        assert "<p> Fri </p>" in html
 
     def test_weather_icon_uses_lowercase_condition(self, client):
         html = client.get("/London").get_data(as_text=True)
@@ -164,44 +166,131 @@ class TestUnits:
         assert caplog.text == ""
 
 
-# --- Forecast selection ----------------------------------------------------------
+# --- Forecast: city-local days, daily low/high (bugs 8, 9) -----------------------
+# Expected values follow from forecast_payload() in conftest.py: day N's readings
+# run 10*N + hour/3, +/-1 for min/max, so a full day (hours 0-21) has
+# low 10*N - 1 and high 10*N + 8.
 
 class TestForecast:
-    def _forecast_days(self, client):
-        """Return the forecast list exactly as passed to the template."""
+    def _context(self, client, monkeypatch, path="/London"):
+        """Return the variables passed to city.html."""
         captured = {}
 
         def fake_render(template, **context):
             captured.update(context)
             return ""
 
-        original = main.render_template
-        main.render_template = fake_render
-        try:
-            client.get("/London")
-        finally:
-            main.render_template = original
-        return captured["forecast"]
+        monkeypatch.setattr(main, "render_template", fake_render)
+        client.get(path)
+        return captured
 
-    def test_shows_next_four_days_at_noon_excluding_today(self, client):
-        days = self._forecast_days(client)
-        today = datetime.date.today()
-        expected_labels = [(today + datetime.timedelta(days=n)).strftime("%a") for n in range(1, 5)]
-        assert [d["day"] for d in days] == expected_labels
-        assert [d["temp"] for d in days] == [11, 12, 13, 14]   # noon temps, not -50
+    def test_next_four_days_with_daily_high_and_low(self, client, monkeypatch):
+        days = self._context(client, monkeypatch)["forecast"]
+        assert [d["day"] for d in days] == ["Sat", "Sun", "Mon", "Tue"]
+        assert [d["low"] for d in days] == [9, 19, 29, 39]
+        assert [d["high"] for d in days] == [18, 28, 38, 48]
+
+    def test_condition_comes_from_reading_nearest_local_noon(self, client, monkeypatch):
+        days = self._context(client, monkeypatch)["forecast"]
+        assert [d["weather"] for d in days] == ["Rain", "Clouds", "Rain", "Clouds"]
+        assert [d["icon"] for d in days] == ["rain", "clouds", "rain", "clouds"]
+
+    def test_page_shows_high_then_low(self, client):
+        html = client.get("/London").get_data(as_text=True)
+        assert '18º <span class="forecast-low">9º</span>' in html
+
+    def test_tokyo_uses_its_own_date(self, client, owm, monkeypatch):
+        """20:00 UTC Friday is already 05:00 Saturday in Tokyo (bug 8)."""
+        set_city_timezone(owm, TZ_TOKYO)
+        context = self._context(client, monkeypatch, "/Tokyo")
+        assert context["current_date"] == "Saturday, November 14"
+        assert context["today_label"] == "Sat"
+        assert [d["day"] for d in context["forecast"]] == ["Sun", "Mon", "Tue", "Wed"]
+
+    def test_new_haven_groups_readings_by_local_day(self, client, owm, monkeypatch):
+        """Grouping by UTC date would pull Friday-evening readings into Saturday."""
+        set_city_timezone(owm, TZ_NEW_HAVEN)
+        days = self._context(client, monkeypatch, "/New Haven")["forecast"]
+        assert [d["day"] for d in days] == ["Sat", "Sun", "Mon", "Tue"]
+        assert [d["low"] for d in days] == [9, 19, 29, 39]
+        assert [d["high"] for d in days] == [18, 28, 38, 48]
+        # Local readings fall at 1, 4, 7, 10, 13 ...; 13:00 is closest to noon.
         assert [d["weather"] for d in days] == ["Rain", "Clouds", "Rain", "Clouds"]
 
-    def test_afternoon_request_without_todays_noon_entry(self, client, owm):
-        """After 12:00 UTC the API no longer returns today's noon slot."""
-        payload = forecast_payload()
-        today = datetime.date.today().strftime("%Y-%m-%d")
-        payload["list"] = [e for e in payload["list"] if not e["dt_txt"].startswith(today)]
-        owm.forecast = FakeResponse(200, payload)
-        assert [d["temp"] for d in self._forecast_days(client)] == [11, 12, 13, 14]
+    def test_today_low_high_includes_rest_of_today(self, client, owm, monkeypatch):
+        # Tokyo, 05:00: readings 06:00-21:00 remain today (temps 2-7, so 1-8).
+        set_city_timezone(owm, TZ_TOKYO)
+        context = self._context(client, monkeypatch, "/Tokyo")
+        assert (context["min_temp"], context["max_temp"]) == (1, 8)
 
-    def test_short_forecast_shows_fewer_days(self, client, owm):
-        owm.forecast = FakeResponse(200, forecast_payload(days=3))
-        assert [d["temp"] for d in self._forecast_days(client)] == [11, 12]
+    def test_today_low_can_come_from_later_today(self, client, owm, monkeypatch):
+        # Warm now (9.6-10.4) but colder later today (Tokyo readings 1-8).
+        set_city_timezone(owm, TZ_TOKYO)
+        owm.current = FakeResponse(200, current_payload(temp=10, temp_min=9.6, temp_max=10.4, tz=TZ_TOKYO))
+        context = self._context(client, monkeypatch, "/Tokyo")
+        assert (context["min_temp"], context["max_temp"]) == (1, 10)
+
+    def test_today_low_high_late_at_night_uses_current_reading(self, client, owm, monkeypatch):
+        # Moscow, 23:00: the next reading is tomorrow, so only the current
+        # reading (1.2-4.6) counts for today.
+        set_city_timezone(owm, TZ_MOSCOW)
+        context = self._context(client, monkeypatch, "/Moscow")
+        assert (context["min_temp"], context["max_temp"]) == (1, 5)
+        assert context["forecast"][0]["day"] == "Sat"
+
+    def test_short_forecast_shows_fewer_days(self, client, owm, monkeypatch):
+        owm.forecast = FakeResponse(200, forecast_payload(count=16))   # through Sunday
+        days = self._context(client, monkeypatch)["forecast"]
+        assert [d["day"] for d in days] == ["Sat", "Sun"]
+
+    def test_city_time_converts_utc_to_local(self):
+        ts = datetime.datetime(2026, 11, 13, 20, 0, tzinfo=datetime.timezone.utc).timestamp()
+        assert main.city_time(ts, TZ_TOKYO).strftime("%a %H:%M") == "Sat 05:00"
+        assert main.city_time(ts, TZ_NEW_HAVEN).strftime("%a %H:%M") == "Fri 15:00"
+        assert main.city_time(ts, 5 * 3600 + 1800).strftime("%H:%M") == "01:30"   # India, +5:30
+
+
+# --- Icons (bug 12) ------------------------------------------------------------
+
+class TestIcons:
+    @pytest.mark.parametrize("condition, icon", [
+        ("Rain", "rain"), ("Clear", "clear"), ("Thunderstorm", "thunderstorm"),
+        ("Dust", "haze"), ("Sand", "haze"), ("Ash", "smoke"), ("Squall", "wind"),
+        ("Volcano", "clouds"), ("", "clouds"), (None, "clouds"),
+    ])
+    def test_icon_for(self, condition, icon):
+        assert main.icon_for(condition) == icon
+
+    @pytest.mark.parametrize("condition", [
+        "Thunderstorm", "Drizzle", "Rain", "Snow", "Mist", "Smoke", "Haze", "Dust",
+        "Fog", "Sand", "Ash", "Squall", "Tornado", "Clear", "Clouds",
+    ])
+    def test_every_owm_condition_has_an_icon_file(self, condition):
+        """All 15 OpenWeatherMap condition groups map to a file that exists."""
+        path = pathlib.Path(main.app.static_folder) / "assets" / f"{main.icon_for(condition)}.png"
+        assert path.is_file(), path
+
+    def test_page_uses_mapped_icon(self, client, owm):
+        owm.current = FakeResponse(200, current_payload(weather="Dust"))
+        html = client.get("/London").get_data(as_text=True)
+        assert "/static/assets/haze.png" in html
+        assert "dust.png" not in html
+        assert "Dust" in html                    # the condition name is still shown
+
+
+# --- FLASK_RUN_PORT (bug 13) -----------------------------------------------------
+
+class TestPort:
+    @pytest.mark.parametrize("raw, expected", [
+        (None, 5000), ("", 5000), ("5001", 5001), (" 8080 ", 8080), ("65535", 65535),
+    ])
+    def test_load_port_accepts(self, raw, expected):
+        assert main.load_port(raw) == expected
+
+    @pytest.mark.parametrize("raw", ["abc", "50.5", "0", "-1", "70000"])
+    def test_bad_port_falls_back_to_5000_with_warning(self, raw, caplog):
+        assert main.load_port(raw) == 5000
+        assert "is not a port number" in caplog.text
 
 
 # --- Error handling ----------------------------------------------------------------

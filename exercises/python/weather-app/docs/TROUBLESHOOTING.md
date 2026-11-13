@@ -22,9 +22,8 @@ the traceback in the same terminal.
 | `Address already in use` | Another server on port 5000 | [Port in use](#address-already-in-use) |
 | `ModuleNotFoundError: flask` | Virtual environment not active | [Missing modules](#modulenotfounderror) |
 | Every city goes to "does not exist" | Real no-match, or a typo | [City not found](#a-real-city-shows-this-city-does-not-exist) |
-| Broken weather icon | Condition without an icon | [Broken icon](#broken-weather-icon) |
 | °F shown although `UNITS=metric` | Typo, or server not restarted | [Wrong units](#wrong-units-f-instead-of-c-or-the-reverse) |
-| Wrong date / odd forecast days | Time zone handling | [Dates and forecast](#wrong-date-or-unexpected-forecast-days) |
+| A different date than yours | The city's local date is shown | [Dates and forecast](#a-different-date-or-day-than-expected) |
 
 ---
 
@@ -165,14 +164,16 @@ name, for example `python3 -m venv venv` on the Mac (`venv/` is gitignored too).
   `curl` check above. (A bad key normally shows "Weather data is unavailable"
   instead, but it's a quick way to rule out the API.)
 
-## Broken weather icon
+## An icon doesn't match the condition
 
-**Why:** the page loads `static/assets/<condition>.png`. Icons exist for Clear,
-Clouds, Drizzle, Fog, Haze, Mist, Rain, Smoke, Snow, Thunderstorm and Tornado.
-OpenWeatherMap can also report **Dust, Sand, Ash, Squall**, which have no icon.
+**Why:** four conditions have no icon of their own and use a similar one:
+Dust and Sand show **haze**, Ash shows **smoke**, Squall shows **wind**. Any
+condition `icon_for()` doesn't know shows **clouds**. The condition's name is
+still printed under the icon.
 
-**Fix:** add a PNG with that name (lowercase) to `static/assets/`, or map the
-missing conditions to an existing icon in the template.
+**Fix:** to give a condition its own icon, add `static/assets/<name>.png`
+(lowercase, e.g. `dust.png`) and remove its entry from `ICON_ALIASES` in
+`main.py`.
 
 ## Wrong units (°F instead of °C, or the reverse)
 
@@ -187,23 +188,29 @@ missing conditions to an existing icon in the template.
 2. Check for an environment variable that overrides `.env`: `echo $UNITS`.
 3. Restart the server.
 
-## Wrong date or unexpected forecast days
+## A different date or day than expected
 
-**Why:** the date comes from the **server's** clock, while forecast timestamps
-are **UTC**, and "noon" means 12:00 UTC. For cities far from the server's time
-zone, the date can be off by one and the noon reading may be from the middle of
-the night locally. This is a known limitation (see
-[architecture-overview.md](architecture-overview.md#known-limitations)).
+**Why:** the page shows the **city's** local date and weekdays, not yours or
+the server's. On Friday evening in New Haven it's already Saturday morning in
+Tokyo, so Tokyo's page says Saturday and its forecast starts on Sunday.
 
-The first forecast column always shows *today* using the current conditions,
-followed by up to four later days. Fewer than four means the API returned
-fewer noon entries, which can happen near the end of its 5-day window.
+The first forecast column is *today* with the current conditions, followed by
+the next four local days. Fewer than four is unusual; it means the API
+returned less than its usual 5 days of readings.
 
-## Min/max range looks too narrow ("40° - 43°")
+## Today's low looks too high
 
-**Why:** those values are the current reading's `temp_min`/`temp_max`, which is the
-spread across the city area **right now**, not the day's low and high. This is
-expected with the current code (implementing a real daily low/high is a bonus challenge).
+**Why:** today's low-high combines the current reading with the forecast for
+the **rest** of today. The free endpoints don't return earlier hours, so this
+morning's low isn't included. Late in the evening there may be no readings
+left today, and the range is just the current reading's.
+
+## "Invalid value for '--port'"
+
+**Why:** `FLASK_RUN_PORT` isn't a number. `flask run` stops with this message;
+`python main.py` logs `FLASK_RUN_PORT=... is not a port number` and uses 5000.
+
+**Fix:** set a number from 1 to 65535 in `.env`, e.g. `FLASK_RUN_PORT=5001`.
 
 ## Tests
 

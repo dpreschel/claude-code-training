@@ -269,6 +269,11 @@ img {
 	align-items: center;
 }
 
+/* Daily low next to the high, e.g. "59º 48º" */
+.forecast-low {
+	opacity: 0.65;
+}
+
 /* Error Page */
 #error-text {
     grid-row: 1 / -1;

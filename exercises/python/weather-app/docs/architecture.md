@@ -80,11 +80,11 @@ sequenceDiagram
         Flask-->>Browser: error.html
     else At least one match
         Note over Flask: Use lat and lon of the first match
-        Flask->>Current: GET /data/2.5/weather (lat, lon, units=imperial)
-        Current-->>Flask: temp, min, max, wind, condition
-        Flask->>Forecast: GET /data/2.5/forecast (lat, lon, units=imperial)
+        Flask->>Current: GET /data/2.5/weather (lat, lon, units=UNITS)
+        Current-->>Flask: temp, min, max, wind, condition, timezone offset
+        Flask->>Forecast: GET /data/2.5/forecast (lat, lon, units=UNITS)
         Forecast-->>Flask: 3-hourly entries for 5 days
-        Note over Flask: Keep the 12:00 entries for the next 4 days
+        Note over Flask: Group readings by the city's local date<br/>Daily high/low for the next 4 days
         Flask-->>Browser: city.html
         Browser->>Flask: GET /static css and icons
         Flask-->>Browser: Static files
@@ -103,7 +103,7 @@ non-JSON reply), the request stops and the 503 page is shown.
 flowchart TD
     Start(["GET /#lt;city#gt;"]) --> Blank{"Name empty or<br/>only spaces?"}
     Blank -->|"Yes"| Home(["Redirect to /<br/>no API calls"])
-    Blank -->|"No"| Format["Capitalize city name<br/>Format today's date"]
+    Blank -->|"No"| Format["Capitalize city name"]
     Format --> GeoCall["Call Geocoding API<br/>q = city, limit = 3"]
     GeoCall --> GeoOK{"Call OK?"}
     GeoOK -->|"No"| Unavailable(["WeatherAPIError<br/>503: weather data unavailable"])
@@ -117,7 +117,8 @@ flowchart TD
     Extract --> FcCall["Call Forecast API<br/>same lat, lon, units"]
     FcCall --> FcOK{"Call OK?"}
     FcOK -->|"No"| Unavailable
-    FcOK -->|"Yes"| Filter["Keep entries at 12:00:00<br/>that are not today's date"]
-    Filter --> Slice["Take the first 4<br/>Label each by its own date"]
-    Slice --> Render(["Render city.html<br/>today + 4 forecast days"])
+    FcOK -->|"Yes"| Local["Convert readings to city time<br/>(timezone offset from the API)<br/>and group by local date"]
+    Local --> Today["Today's low/high:<br/>current reading + rest of today"]
+    Today --> Days["Next 4 days: high, low,<br/>icon from the reading nearest local noon"]
+    Days --> Render(["Render city.html<br/>dates in city time"])
 ```

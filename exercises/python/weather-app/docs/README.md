@@ -3,8 +3,9 @@
 A small Flask web app that shows the current weather and a 4-day forecast for
 any city, using the [OpenWeatherMap](https://openweathermap.org/api) API.
 
-Type a city, get a page with the current temperature, conditions, the min/max
-range, wind speed, and the noon forecast for the next four days. Unknown cities
+Type a city, get a page with the current temperature, conditions, today's low
+and high, wind speed, and the high and low for each of the next four days, all
+in the city's own time zone. Unknown cities
 go to a friendly "city not found" page.
 
 > This folder holds the developer documentation. The project's original
@@ -24,9 +25,11 @@ go to a friendly "city not found" page.
 ## Features
 
 - Search any city by name; the name is title-cased (`new haven` → `New Haven`)
-- Current conditions: temperature, condition with icon, min/max, wind
+- Current conditions: temperature, condition with icon, today's low-high, wind
   (°F and mph by default, or °C and m/s with `UNITS=metric`)
-- 4-day forecast using each day's 12:00 (UTC) reading
+- 4-day forecast: each day's high and low, with the icon for local midday
+- Dates and days in the city's local time (Tokyo can already be "tomorrow")
+- An icon for every OpenWeatherMap condition (rare ones such as Dust map to a similar icon)
 - Bookmarkable city URLs: `http://127.0.0.1:5000/London`
 - Responsive layout (CSS grid, flexbox, media queries); no JavaScript
 - Unit test suite that runs offline against a fake OpenWeatherMap
@@ -177,8 +180,8 @@ Fetch a city page and strip the HTML to see the data:
 
 ```bash
 $ curl -s http://127.0.0.1:5000/New%20Haven | sed -e 's/<[^>]*>/ /g' | tr -s ' \n' ' '
- Weather Forecast CHANGE CITY New Haven Friday, November 13 42ºF Clouds 40° - 43°
- 5.75 mph 5-DAY FORECAST Fri 42º Sat 34º Sun 36º Mon 34º Tue 33º ...
+ Weather Forecast CHANGE CITY New Haven Friday, November 13 41ºF Clouds 38° - 43°
+ 6.91 mph 5-DAY FORECAST Fri 41º Sat 47º 34º Sun 47º 36º Mon 47º 34º Tue 52º 33º ...
 ```
 
 An unknown city:
@@ -197,7 +200,7 @@ Every endpoint, with full request/response details: [API.md](API.md).
 
 ```bash
 source .venv/bin/activate
-pytest                    # 48 passed
+pytest                    # 91 passed
 pytest -v                 # one line per test
 pytest -rx                # list the known bugs (xfail) with reasons
 pytest -k new_haven       # tests whose name matches
@@ -249,7 +252,7 @@ server after changing them.
 |---|---|---|---|
 | `OWM_API_KEY` | your key | *(none)* | **Required.** If it's missing, the server logs a warning at startup and searches show "Weather data is unavailable" (503). |
 | `UNITS` | `imperial`, `metric` | `imperial` | `imperial`: °F and mph. `metric`: °C and meter/sec. Sent to OpenWeatherMap, which converts the numbers; the page labels follow automatically. Case-insensitive. **Any other value also means imperial**, and the server logs a warning (e.g. `UNITS='xxx' is not 'metric' or 'imperial'; using imperial`). |
-| `FLASK_RUN_PORT` | port number | `5000` | Used by `flask run` and `python main.py`. A `--port` flag on the command line overrides it. Not used by gunicorn, which binds to `$PORT` or its `--bind` option. |
+| `FLASK_RUN_PORT` | port number | `5000` | Used by `flask run` and `python main.py`. A `--port` flag on the command line overrides it. A bad value (`abc`, `0`, `70000`): `python main.py` logs a warning and uses 5000; `flask run` stops with `Invalid value for '--port'`. Not used by gunicorn, which binds to `$PORT` or its `--bind` option. |
 
 Examples:
 
