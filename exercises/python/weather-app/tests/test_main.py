@@ -10,7 +10,7 @@ import pytest
 import requests
 
 import main
-from conftest import FakeResponse, forecast_payload
+from conftest import FakeResponse, forecast_payload, geocode_payload
 
 
 def known_bug(reason):
@@ -76,6 +76,19 @@ class TestCityPage:
         html = client.get("/new york").get_data(as_text=True)
         assert "<h1> New York </h1>" in html
         assert owm.calls_to(main.GEOCODING_API_ENDPOINT)[0]["params"]["q"] == "New York"
+
+    @pytest.mark.parametrize("typed", ["New Haven", "new Haven"])
+    def test_new_haven_search(self, client, owm, typed):
+        owm.geocode = FakeResponse(200, geocode_payload("New Haven", lat=41.3083, lon=-72.9279))
+
+        response = client.post("/", data={"search": typed}, follow_redirects=True)
+
+        assert response.status_code == 200
+        assert "<h1> New Haven </h1>" in response.get_data(as_text=True)
+        geocode_call, current_call, forecast_call = owm.calls
+        assert geocode_call["params"]["q"] == "New Haven"
+        for call in (current_call, forecast_call):
+            assert (call["params"]["lat"], call["params"]["lon"]) == (41.3083, -72.9279)
 
     def test_makes_exactly_three_api_calls_in_order(self, client, owm):
         client.get("/London")
