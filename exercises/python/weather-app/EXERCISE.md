@@ -32,6 +32,7 @@ This is a simple Python weather application that fetches weather data from an AP
    ```bash
    flask --app main run --debug
    ```
+   On macOS, use 127.0.0.1:5000 or turn off AirPlay Receiver (it also listens on port 5000).
 
 ## Exercise Tasks
 
