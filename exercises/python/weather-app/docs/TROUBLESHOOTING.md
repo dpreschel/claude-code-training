@@ -3,17 +3,21 @@
 Find your symptom, then follow the fix. Most problems are the API key, the
 port, or the environment.
 
-**Quick diagnosis:** when a page shows *Internal Server Error*, look at the
-terminal running `flask`. The last lines of the traceback name the problem,
-and this guide is organized by those messages.
+**Quick diagnosis:** when a search shows **"Weather data is unavailable right
+now"** (HTTP 503), the app couldn't use OpenWeatherMap. The terminal running
+`flask` logs the reason on a line starting `OpenWeatherMap request failed:`,
+and this guide is organized by those messages. (The API key is shown as
+`<redacted>` in these lines.) An *Internal Server Error* (500) means a bug: read
+the traceback in the same terminal.
 
-| Symptom / error | Likely cause | Jump to |
+| Symptom / log message | Likely cause | Jump to |
 |---|---|---|
-| `KeyError: 0` | Invalid, missing or not-yet-active API key | [Invalid API key](#invalid-api-key) |
-| `KeyError: 'list'` | Forecast call failed (rate limit or key) | [Rate limited](#rate-limited-429) |
-| `HTTPError: 401` / `429` / `5xx` | Current-weather call failed | [Invalid API key](#invalid-api-key), [Rate limited](#rate-limited-429) |
-| `JSONDecodeError` | Something other than OpenWeatherMap answered | [Blocked network / proxy](#jsondecodeerror-blocked-network-or-proxy) |
-| `ConnectionError` / request hangs | No network, DNS, or firewall | [Network problems](#network-problems) |
+| `OWM_API_KEY is not set` | No key in `.env` or the environment | [Invalid API key](#invalid-api-key) |
+| `401 Client Error: Unauthorized` | Invalid or not-yet-active API key | [Invalid API key](#invalid-api-key) |
+| `429 Client Error: Too Many Requests` | Rate limited | [Rate limited](#rate-limited-429) |
+| `Expecting value: line 1 column 1` | Something other than OpenWeatherMap answered | [Blocked network / proxy](#non-json-reply-blocked-network-or-proxy) |
+| `Max retries exceeded`, `NameResolutionError`, `timed out` | No network, DNS, firewall, or a slow API | [Network problems](#network-problems) |
+| `5xx Server Error` | OpenWeatherMap outage | [Network problems](#network-problems) |
 | Blank page or `403` at `localhost:5000` (Mac) | AirPlay Receiver owns port 5000 | [macOS port 5000](#macos-localhost5000-shows-a-blank-page-or-403) |
 | `Address already in use` | Another server on port 5000 | [Port in use](#address-already-in-use) |
 | `ModuleNotFoundError: flask` | Virtual environment not active | [Missing modules](#modulenotfounderror) |
@@ -26,12 +30,13 @@ and this guide is organized by those messages.
 
 ## Invalid API key
 
-**Symptoms:** every search gives *Internal Server Error*. The traceback ends with
-`KeyError: 0` at `lat = location_data[0]['lat']`, or with
-`requests.exceptions.HTTPError: 401`.
+**Symptoms:** every search shows "Weather data is unavailable". The log says
+either:
 
-**Why:** OpenWeatherMap answers `{"cod": 401, "message": "Invalid API key"}`. The
-app expects a list of matches and crashes reading the error object.
+- `OWM_API_KEY is not set; weather lookups will fail` at startup, and
+  `OpenWeatherMap request failed: OWM_API_KEY is not set` on each search (no
+  request is sent), or
+- `OpenWeatherMap request failed: ...: 401 Client Error: Unauthorized for url: ...&appid=<redacted>...`
 
 **Check the key directly:**
 
@@ -50,6 +55,7 @@ curl -s "https://api.openweathermap.org/geo/1.0/direct?q=London&limit=1&appid=$O
 
 1. `.env` must be in the `weather-app` folder (next to `main.py`) and contain
    exactly `OWM_API_KEY=yourkey`: no quotes, no spaces around `=`.
+   `cp .env.example .env` gives you the right layout.
 2. **Restart the server after editing `.env`.** It's read once at startup, and the
    `--debug` reloader only watches `.py` files.
 3. Check whether a stale `OWM_API_KEY` environment variable is set in your shell:
@@ -58,8 +64,8 @@ curl -s "https://api.openweathermap.org/geo/1.0/direct?q=London&limit=1&appid=$O
 
 ## Rate limited (429)
 
-**Symptoms:** worked earlier, now *Internal Server Error*, with
-`HTTPError: 429` or `KeyError: 'list'`.
+**Symptoms:** worked earlier, now "Weather data is unavailable", with
+`429 Client Error: Too Many Requests` in the log.
 
 **Why:** each city page makes three API calls, and the free plan limits calls
 per minute and per month (current limits: <https://openweathermap.org/price>).
@@ -69,10 +75,10 @@ limit.
 **Fix:** wait a minute. To avoid it, don't hit the live API in loops; use the
 offline test suite (`pytest`), which never calls OpenWeatherMap.
 
-## JSONDecodeError: blocked network or proxy
+## Non-JSON reply: blocked network or proxy
 
-**Symptoms:** `requests.exceptions.JSONDecodeError: Expecting value: line 1 column 1`
-at `location_response.json()`.
+**Symptoms:** "Weather data is unavailable", with
+`Expecting value: line 1 column 1 (char 0)` in the log.
 
 **Why:** the response wasn't JSON. Something between you and OpenWeatherMap
 answered instead: a corporate proxy, a captive portal, or a sandbox firewall
@@ -90,15 +96,17 @@ allow `api.openweathermap.org` (port 443). In the course's Docker sandbox, run
 
 ## Network problems
 
-**Symptoms:** `requests.exceptions.ConnectionError`, `Name or service not known`,
-or the page **hangs** with no error.
+**Symptoms:** "Weather data is unavailable", with `Max retries exceeded`,
+`NameResolutionError`, `Connection refused`, `Read timed out` or a `5xx Server
+Error` in the log. A page can take up to 10 seconds per API call before
+giving up (`OWM_TIMEOUT` in `main.py`).
 
-**Why:** no route to `api.openweathermap.org`. The app sets **no timeout**, so a
-stalled connection hangs instead of failing.
+**Why:** `api.openweathermap.org` can't be reached, is too slow, or is having
+an outage.
 
 **Fix:** check connectivity with
 `curl -sI https://api.openweathermap.org/ | head -1`, check VPN and proxy
-settings, then retry. Press Ctrl+C to stop a hung dev server.
+settings, then retry. For a `5xx`, wait and try again later.
 
 ## macOS: `localhost:5000` shows a blank page or 403
 

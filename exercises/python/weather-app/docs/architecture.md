@@ -93,21 +93,27 @@ sequenceDiagram
 
 ## `get_weather()` flow
 
-The decision logic inside the `/<city>` route in `main.py`.
+The decision logic inside the `/<city>` route in `main.py`. Each API call goes
+through `owm_get()`; if it fails (no key, network error, timeout, HTTP error,
+non-JSON reply), the request stops and the 503 page is shown.
 
 ```mermaid
 flowchart TD
     Start(["GET /#lt;city#gt;"]) --> Format["Capitalize city name<br/>Format today's date"]
     Format --> GeoCall["Call Geocoding API<br/>q = city, limit = 3"]
-    GeoCall --> Found{"Any matches?"}
+    GeoCall --> GeoOK{"Call OK?"}
+    GeoOK -->|"No"| Unavailable(["WeatherAPIError<br/>503: weather data unavailable"])
+    GeoOK -->|"Yes"| Found{"Any matches?"}
     Found -->|"No"| ErrorPage(["Redirect to /error"])
     Found -->|"Yes"| Coords["Take lat and lon<br/>of the first match"]
-    Coords --> CurCall["Call Current Weather API<br/>units = imperial"]
-    CurCall --> Status{"HTTP status OK?"}
-    Status -->|"No"| Raise(["raise_for_status()<br/>HTTPError, 500 response"])
-    Status -->|"Yes"| Extract["Extract temp, min, max,<br/>wind speed, condition"]
+    Coords --> CurCall["Call Current Weather API<br/>units = UNITS (default imperial)"]
+    CurCall --> CurOK{"Call OK?"}
+    CurOK -->|"No"| Unavailable
+    CurOK -->|"Yes"| Extract["Extract temp, min, max,<br/>wind speed, condition"]
     Extract --> FcCall["Call Forecast API<br/>same lat, lon, units"]
-    FcCall --> Filter["Keep entries at 12:00:00<br/>that are not today's date"]
+    FcCall --> FcOK{"Call OK?"}
+    FcOK -->|"No"| Unavailable
+    FcOK -->|"Yes"| Filter["Keep entries at 12:00:00<br/>that are not today's date"]
     Filter --> Slice["Take the first 4<br/>Label each by its own date"]
     Slice --> Render(["Render city.html<br/>today + 4 forecast days"])
 ```

@@ -69,7 +69,7 @@ Location: /
 ```
 
 > **Known issue:** a whitespace-only search (`search=   `) redirects to
-> `/%20%20%20`, which fails with `500` (see `/<city>` below).
+> `/%20%20%20`, which shows the 503 "unavailable" page (see `/<city>` below).
 
 ---
 
@@ -117,7 +117,7 @@ default `UNITS=imperial`; with `UNITS=metric` the page shows `ºC` and
 | `200 OK` | City found and all three calls succeeded |
 | `302 Found` → `/error` | Geocoding returned no matches (an empty list) |
 | `404 Not Found` | Path has more than one segment (`/a/b`) |
-| `500 Internal Server Error` | Any OpenWeatherMap failure: invalid or missing key (401), rate limit (429), server error, network error, or a whitespace-only city. **These are not handled yet**; see [Known issues](#known-issues). |
+| `503 Service Unavailable` | Any OpenWeatherMap failure: key missing or invalid (401), rate limit (429), server error, network error, no answer within 10 seconds, or a reply that isn't JSON. Renders `error.html` with "Weather data is unavailable right now. Please try again later." The reason is logged on the server, with the API key redacted. Also returned for a whitespace-only city, which the API rejects (see [Known issues](#known-issues)). |
 
 ```bash
 $ curl -i http://127.0.0.1:5000/New%20Haven
@@ -143,7 +143,8 @@ return `Dust`, `Sand`, `Ash` and `Squall`, which show a broken image.
 ## `GET /error`
 
 Renders the "This city does not exist. Please try again." page
-(`templates/error.html`) with a **CHANGE CITY** link back to `/`. Makes no API
+(`templates/error.html`; the same template, with a different message and a
+503 status, is used when OpenWeatherMap is unavailable) with a **CHANGE CITY** link back to `/`. Makes no API
 calls. Normally reached by the redirect from `/<city>`.
 
 | Status | Body |
@@ -181,10 +182,7 @@ These are documented by strict `xfail` tests in `tests/test_main.py`:
 
 | Issue | Effect |
 |---|---|
-| OpenWeatherMap error responses aren't checked | Bad key, rate limit, or outage → `500` instead of an error page |
-| No timeouts on outgoing requests | A slow API stalls the request indefinitely |
-| Whitespace-only city | `500` |
+| Whitespace-only city | 503 "unavailable" page instead of returning to the search form |
 | `/favicon.ico` (requested automatically by browsers) is treated as a city | One wasted geocoding call per page load; redirects to `/error` |
-| Missing `OWM_API_KEY` isn't detected at startup | Every search fails with `500` |
 
 See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for symptoms and fixes.

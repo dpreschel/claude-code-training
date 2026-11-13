@@ -20,6 +20,9 @@ class FakeResponse:
         self._payload = payload
 
     def json(self):
+        # An exception as payload simulates a body that isn't JSON.
+        if isinstance(self._payload, Exception):
+            raise self._payload
         return self._payload
 
     def raise_for_status(self):

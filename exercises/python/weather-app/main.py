@@ -28,10 +28,19 @@ OWM_ENDPOINT = "https://api.openweathermap.org/data/2.5/weather"
 OWM_FORECAST_ENDPOINT = "https://api.openweathermap.org/data/2.5/forecast"
 GEOCODING_API_ENDPOINT = "https://api.openweathermap.org/geo/1.0/direct"
 
-# None if OWM_API_KEY is unset. Nothing checks this: a missing key surfaces
-# later as a 401 from the API (see docs/TROUBLESHOOTING.md).
+# Seconds to wait for OpenWeatherMap (per connect and per read) before giving
+# up, so a stalled API can't hang a request or a gunicorn worker indefinitely.
+OWM_TIMEOUT = 10
+
+log = logging.getLogger(__name__)
+
+# None if OWM_API_KEY is unset. The app still starts (so the search page
+# works), but owm_get() refuses to call the API and every lookup shows the
+# "unavailable" page.
 api_key = os.getenv("OWM_API_KEY")
 # api_key = os.environ.get("OWM_API_KEY")
+if not api_key:
+    log.warning("OWM_API_KEY is not set; weather lookups will fail. See .env.example.")
 
 # Display labels for each OpenWeatherMap unit system. The API converts the
 # numbers; these just tell city.html what to print after them.
@@ -51,8 +60,7 @@ def load_units(value):
     if units in UNIT_LABELS:
         return units
     if units:
-        logging.getLogger(__name__).warning(
-            "UNITS=%r is not 'metric' or 'imperial'; using imperial", value)
+        log.warning("UNITS=%r is not 'metric' or 'imperial'; using imperial", value)
     return "imperial"
 
 
@@ -61,6 +69,42 @@ def load_units(value):
 UNITS = load_units(os.getenv("UNITS"))
 
 app = Flask(__name__)
+
+
+class WeatherAPIError(Exception):
+    """OpenWeatherMap couldn't be used: no key, network error, HTTP error, or a non-JSON reply."""
+
+
+def owm_get(url, params):
+    """GET an OpenWeatherMap endpoint and return the parsed JSON.
+
+    Every failure becomes WeatherAPIError, which the error handler below turns
+    into a 503 page instead of a crash:
+      - no API key configured (checked first, so no request is sent)
+      - network problems (connection refused, DNS, ...)
+      - no answer within OWM_TIMEOUT seconds
+      - HTTP 4xx/5xx, e.g. 401 invalid key or 429 rate limit
+      - a body that isn't JSON (e.g. a proxy or firewall page)
+    """
+    if not api_key:
+        raise WeatherAPIError("OWM_API_KEY is not set")
+    try:
+        response = requests.get(url, params=params, timeout=OWM_TIMEOUT)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as exc:  # includes Timeout, HTTPError, JSONDecodeError
+        # requests puts the full request URL, ?appid=<key> included, into
+        # error messages; redact the key so it never reaches the logs.
+        detail = str(exc).replace(api_key, "<redacted>")
+        raise WeatherAPIError(f"{url}: {detail}") from exc
+
+
+@app.errorhandler(WeatherAPIError)
+def weather_api_unavailable(exc):
+    """Show the error page with a 503 when OpenWeatherMap can't be reached or used."""
+    log.warning("OpenWeatherMap request failed: %s", exc)
+    message = "Weather data is unavailable right now. Please try again later."
+    return render_template("error.html", message=message), 503
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -85,8 +129,9 @@ def home():
 def get_weather(city):
     """Render current weather and a 4-day noon forecast for ``city``.
 
-    Redirects to /error when geocoding finds no match. Other API failures
-    (bad key, rate limit, network errors) are not handled and produce a 500.
+    Redirects to /error when geocoding finds no match. Any API failure (bad
+    key, rate limit, network error) raises WeatherAPIError from owm_get(),
+    which weather_api_unavailable() turns into a 503 page.
     """
     # "new haven" -> "New Haven", used both for display and for the API query.
     city_name = string.capwords(city)
@@ -104,12 +149,10 @@ def get_weather(city):
         "limit": 3,
     }
 
-    location_response = requests.get(GEOCODING_API_ENDPOINT, params=location_params)
-    location_data = location_response.json()
+    location_data = owm_get(GEOCODING_API_ENDPOINT, location_params)
 
-    # No match comes back as an empty list. An API *error* comes back as a
-    # non-empty dict (e.g. {"cod": 401, ...}), which passes this check and then
-    # fails on location_data[0] with KeyError: 0.
+    # No match comes back as an empty list. (API errors never get here:
+    # owm_get() raises on any non-2xx status.)
     if not location_data:
         return redirect(url_for("error"))
     else:
@@ -125,10 +168,7 @@ def get_weather(city):
         "appid": api_key,
         "units": UNITS,
     }
-    weather_response = requests.get(OWM_ENDPOINT, weather_params)
-    # Raises HTTPError on 4xx/5xx; nothing catches it, so Flask returns a 500.
-    weather_response.raise_for_status()
-    weather_data = weather_response.json()
+    weather_data = owm_get(OWM_ENDPOINT, weather_params)
 
     current_temp = round(weather_data['main']['temp'])
     # Condition group such as "Clear" or "Rain". The templates lowercase it to
@@ -141,10 +181,7 @@ def get_weather(city):
     wind_speed = weather_data['wind']['speed']
 
     # --- 3. Five-day forecast (one entry every 3 hours) -----------------------
-    # Unlike the call above, the status isn't checked: an error response
-    # fails below with KeyError: 'list'.
-    forecast_response = requests.get(OWM_FORECAST_ENDPOINT, weather_params)
-    forecast_data = forecast_response.json()
+    forecast_data = owm_get(OWM_FORECAST_ENDPOINT, weather_params)
 
     # Noon forecast for the next four days. Derive the day label from each entry's own
     # date so labels and data can't drift apart (today's noon entry is absent after 12:00 UTC).

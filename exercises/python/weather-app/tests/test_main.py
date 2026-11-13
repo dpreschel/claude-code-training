@@ -209,42 +209,62 @@ class TestErrors:
         assert response.status_code == 200
         assert b"This city does not exist" in response.data
 
-    @known_bug("geocoding error JSON (e.g. 401 invalid key) is indexed like a list: KeyError")
-    def test_geocoding_api_error_shows_error_page(self, client, owm):
+    # --- OpenWeatherMap failures: 503 "unavailable" page, never a crash ---------
+
+    def assert_unavailable(self, response):
+        assert response.status_code == 503
+        assert b"Weather data is unavailable" in response.data
+        assert b"This city does not exist" not in response.data
+
+    def test_geocoding_api_error_shows_unavailable_page(self, client, owm):
         owm.geocode = FakeResponse(401, {"cod": 401, "message": "Invalid API key"})
-        response = client.get("/London")
-        assert response.status_code in (302, 503)
+        self.assert_unavailable(client.get("/London"))
+        assert len(owm.calls) == 1                # stops at the failed call
 
-    @known_bug("raise_for_status() on the current-weather call is never caught")
-    def test_current_weather_api_error_shows_error_page(self, client, owm):
+    def test_current_weather_api_error_shows_unavailable_page(self, client, owm):
         owm.current = FakeResponse(500, {"cod": 500, "message": "Internal error"})
-        response = client.get("/London")
-        assert response.status_code in (302, 503)
+        self.assert_unavailable(client.get("/London"))
+        assert len(owm.calls) == 2
 
-    @known_bug("forecast response is never checked: KeyError 'list'")
-    def test_forecast_api_error_shows_error_page(self, client, owm):
+    def test_forecast_api_error_shows_unavailable_page(self, client, owm):
         owm.forecast = FakeResponse(429, {"cod": 429, "message": "Rate limit exceeded"})
-        response = client.get("/London")
-        assert response.status_code in (302, 503)
+        self.assert_unavailable(client.get("/London"))
 
-    @known_bug("network failures are not caught")
-    def test_network_failure_shows_error_page(self, client, owm):
+    def test_network_failure_shows_unavailable_page(self, client, owm):
         owm.geocode = requests.ConnectionError("network down")
-        response = client.get("/London")
-        assert response.status_code in (302, 503)
+        self.assert_unavailable(client.get("/London"))
 
-    @known_bug("requests.get is called without a timeout")
+    def test_timeout_shows_unavailable_page(self, client, owm):
+        owm.current = requests.Timeout("read timed out")
+        self.assert_unavailable(client.get("/London"))
+
+    def test_non_json_reply_shows_unavailable_page(self, client, owm):
+        """E.g. a proxy or firewall answering with an HTML/text page."""
+        owm.geocode = FakeResponse(200, requests.JSONDecodeError("Expecting value", "Blocked", 0))
+        self.assert_unavailable(client.get("/London"))
+
     def test_every_api_call_has_a_timeout(self, client, owm):
         client.get("/London")
-        assert all(c["kwargs"].get("timeout") for c in owm.calls)
+        assert [c["kwargs"].get("timeout") for c in owm.calls] == [main.OWM_TIMEOUT] * 3
 
-    @known_bug("missing OWM_API_KEY is not detected; the API returns 401 and the app crashes")
-    def test_missing_api_key_shows_error_without_calling_api(self, client, owm, monkeypatch):
+    def test_missing_api_key_shows_unavailable_without_calling_api(self, client, owm, monkeypatch):
         monkeypatch.setattr(main, "api_key", None)
-        owm.geocode = FakeResponse(401, {"cod": 401, "message": "Invalid API key"})
-        response = client.get("/London")
-        assert response.status_code in (302, 503)
+        self.assert_unavailable(client.get("/London"))
         assert owm.calls == []
+
+    def test_api_failure_is_logged(self, client, owm, caplog):
+        owm.geocode = FakeResponse(401, {"cod": 401, "message": "Invalid API key"})
+        client.get("/London")
+        assert "OpenWeatherMap request failed" in caplog.text
+
+    def test_api_key_is_redacted_from_logs(self, client, owm, caplog):
+        # requests' real HTTPError message includes the URL with ?appid=<key>.
+        owm.geocode = requests.HTTPError(
+            "401 Client Error: Unauthorized for url: "
+            "https://api.openweathermap.org/geo/1.0/direct?q=London&appid=test-key&limit=3")
+        client.get("/London")
+        assert "test-key" not in caplog.text
+        assert "appid=<redacted>" in caplog.text
 
     @known_bug("the browser's /favicon.ico request is treated as a city lookup")
     def test_favicon_does_not_call_api(self, client, owm):

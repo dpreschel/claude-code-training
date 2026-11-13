@@ -143,6 +143,7 @@ watches `.py` files only: **restart the server after editing `.env`.**
 | Type `new haven` | Redirect to `/new%20haven` → page titled **New Haven** |
 | Open `/Paris` directly | Weather for Paris (bookmarkable) |
 | Search a city that doesn't exist | Redirect to `/error` → "This city does not exist" |
+| Search while OpenWeatherMap is unreachable (or the key is bad) | "Weather data is unavailable right now" (503); the reason is in the server log |
 | Click **CHANGE CITY** | Back to the search form |
 
 **Ambiguous names:** the app uses the first match OpenWeatherMap returns.
@@ -196,7 +197,7 @@ Every endpoint, with full request/response details: [API.md](API.md).
 
 ```bash
 source .venv/bin/activate
-pytest                    # 20 passed, 8 xfailed
+pytest                    # 42 passed, 2 xfailed
 pytest -v                 # one line per test
 pytest -rx                # list the known bugs (xfail) with reasons
 pytest -k new_haven       # tests whose name matches
@@ -206,8 +207,8 @@ The tests never touch the network or need an API key. `tests/conftest.py`
 replaces `requests.get` with **FakeOWM**, which returns canned responses by
 endpoint URL and records every call so tests can check what the app sent.
 
-Tests marked **xfail** document known bugs (unhandled API errors, no timeouts,
-etc.; see [architecture-overview.md](architecture-overview.md#known-limitations)).
+Tests marked **xfail** document known bugs that aren't fixed yet (e.g. the
+whitespace-only search; see [architecture-overview.md](architecture-overview.md#known-limitations)).
 They are strict: when a fix makes one pass, pytest reports **XPASS** as a
 failure, which is the cue to delete its `@known_bug` marker.
 
@@ -244,7 +245,7 @@ server after changing them.
 
 | Setting | Values | Default | Notes |
 |---|---|---|---|
-| `OWM_API_KEY` | your key | *(none)* | **Required.** Not validated: a missing key shows up as an error on the first search. |
+| `OWM_API_KEY` | your key | *(none)* | **Required.** If it's missing, the server logs a warning at startup and searches show "Weather data is unavailable" (503). |
 | `UNITS` | `imperial`, `metric` | `imperial` | `imperial`: °F and mph. `metric`: °C and meter/sec. Sent to OpenWeatherMap, which converts the numbers; the page labels follow automatically. Case-insensitive. **Any other value also means imperial**, and the server logs a warning (e.g. `UNITS='xxx' is not 'metric' or 'imperial'; using imperial`). |
 | `FLASK_RUN_PORT` | port number | `5000` | Used by `flask run` and `python main.py`. A `--port` flag on the command line overrides it. Not used by gunicorn, which binds to `$PORT` or its `--bind` option. |
 

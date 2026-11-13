@@ -24,7 +24,8 @@ Browser ──HTTP──▶ Flask (main.py) ──HTTPS──▶ OpenWeatherMap
 |---|---|---|
 | **Configuration** | `main.py` (top), `.env` | Loads `OWM_API_KEY` with python-dotenv; defines the three endpoint URLs |
 | **Routes** | `main.py`: `home()`, `get_weather()`, `error()` | HTTP handling, redirects, choosing a template |
-| **API access** | inline in `get_weather()` | Builds parameters, calls `requests.get`, reads the JSON |
+| **API access** | `main.py`: `owm_get()` | One helper for all three calls: checks the key is set, `requests.get` with a timeout, status check, JSON parsing; any failure raises `WeatherAPIError` |
+| **Error handling** | `main.py`: `weather_api_unavailable()` | Flask error handler: logs the failure (API key redacted) and renders `error.html` with a 503 |
 | **Data shaping** | inline in `get_weather()` | Rounding, picking fields, selecting the noon forecast entries |
 | **Presentation** | `templates/*.html`, `static/` | Jinja2 pages, CSS layout, one icon per weather condition |
 | **Tests** | `tests/` | Flask test client + FakeOWM (a fake `requests.get`) |
@@ -43,7 +44,9 @@ A search for "new haven", end to end:
 4. **Geocode:** `GET /geo/1.0/direct?q=New Haven&limit=3`. An empty list
    redirects to `/error`. Otherwise the first match gives `lat`, `lon`.
 5. **Current weather:** `GET /data/2.5/weather?lat&lon&units=<UNITS>`.
-   `raise_for_status()`, then pick temperature, condition, min/max, wind.
+   Pick temperature, condition, min/max, wind.
+   (Steps 4-6 go through `owm_get()`. If any call fails, the request stops there
+   and the visitor gets the 503 "Weather data is unavailable" page.)
 6. **Forecast:** `GET /data/2.5/forecast?lat&lon&units=<UNITS>` returns 40
    entries (every 3 hours for 5 days). Keep entries timestamped `12:00:00`
    whose date isn't today, then take the first 4.
@@ -88,8 +91,11 @@ change between installs. There is no lock file.
   variables, which win: `OWM_API_KEY`, `UNITS` (imperial/metric) and
   `FLASK_RUN_PORT` (dev server port).
 - They're read **once, at import time**. Changing `.env` requires a restart.
+- A missing `OWM_API_KEY` is logged as a warning at startup. The app still
+  runs, but lookups show the 503 page without calling the API.
 - The key is sent to OpenWeatherMap as the `appid` query parameter (the API
-  requires this), over HTTPS. It's never rendered into pages.
+  requires this), over HTTPS. It's never rendered into pages, and `owm_get()`
+  redacts it from error messages before they're logged.
 - `.env` is gitignored. In production, set the key as an environment variable
   on the host.
 
@@ -109,22 +115,24 @@ change between installs. There is no lock file.
 
 | # | Limitation | Where | Impact |
 |---|---|---|---|
-| 1 | API error responses aren't checked (geocoding, forecast); `raise_for_status()` on current weather isn't caught | `get_weather()` | Bad key, rate limit, or outage → `500` |
-| 2 | No timeouts on `requests.get` | all three calls | A stalled API ties up a worker indefinitely |
-| 3 | No input validation | `home()`, `get_weather()` | Whitespace-only search → `500` |
-| 4 | Catch-all `/<city>` route | routing | `/favicon.ico` costs a geocoding call; `POST /error` shows weather for "Error" |
-| 5 | Server-local "today" vs UTC forecast times | date logic | Wrong date for distant time zones; "noon" is noon UTC |
-| 6 | Min/max is the current reading's spread, not the daily range | current weather | Misleading low/high |
-| 7 | API key not validated at startup | config | The app starts fine, then fails on the first search |
-| 8 | No caching | API access | Three API calls per view; free-tier rate limits apply |
-| 9 | Icons missing for `Dust`, `Sand`, `Ash`, `Squall` | `static/assets` | Broken image for those conditions |
-| 10 | No logging | everywhere | Failures leave only Flask's traceback |
+| 1 | No input validation | `home()`, `get_weather()` | Whitespace-only search → 503 "unavailable" page (the API rejects the empty name) |
+| 2 | Catch-all `/<city>` route | routing | `/favicon.ico` costs a geocoding call; `POST /error` shows weather for "Error" |
+| 3 | Server-local "today" vs UTC forecast times | date logic | Wrong date for distant time zones; "noon" is noon UTC |
+| 4 | Min/max is the current reading's spread, not the daily range | current weather | Misleading low/high |
+| 5 | No caching | API access | Three API calls per view; free-tier rate limits apply |
+| 6 | Icons missing for `Dust`, `Sand`, `Ash`, `Squall` | `static/assets` | Broken image for those conditions |
+| 7 | Logging covers only API failures and config warnings | everywhere else | Other failures leave only Flask's traceback |
+
+**Fixed:** unchecked API errors, uncaught network errors, a missing key
+crashing on every search, and missing timeouts. All three calls now go through
+`owm_get()`, and failures show a 503 page instead of a 500.
 
 ## Where it's headed
 
-Most of the limitations above come from one thing: `get_weather()` does every
-job itself. The natural next step (the exercise's Task 3, a good Plan Mode
-candidate) is to split it into layers:
+`owm_get()` was the first step: API access now lives in one place. The rest
+of `get_weather()` still does several jobs (input handling, data shaping,
+rendering). The natural next step, a good Plan Mode exercise, is to split it
+into layers:
 
 ```
 routes (main.py)              validate input, call the service, choose a template or redirect
@@ -135,9 +143,9 @@ routes (main.py)              validate input, call the service, choose a templat
 
 This split pays off in several ways:
 
-- **Errors (#1, #2, #7):** the client sets timeouts and raises custom exceptions,
-  and the route turns them into the error page or a `503`.
+- **Errors:** `owm_get()` and `WeatherAPIError` become the client's job; a
+  `CityNotFound` exception can replace the no-match redirect logic.
 - **Testing:** the service can be tested with a fake client, without patching `requests`.
-- **Features:** caching (#8), daily low/high and local time (#5, #6, using the
+- **Features:** caching (#5), daily low/high and local time (#3, #4, using the
   forecast's `city.timezone` offset), and other weather providers each live in
   one place.
