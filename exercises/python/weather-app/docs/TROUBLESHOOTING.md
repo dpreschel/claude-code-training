@@ -161,9 +161,9 @@ name, for example `python3 -m venv venv` on the Mac (`venv/` is gitignored too).
   `München`), and so do some common nicknames (`NYC`), but not every
   abbreviation does.
 - For duplicates, add a country code: `Paris,US`, `Portland,OR,US`.
-- Seeing this for **every** city, including London? Check the server log. If it
-  shows `GET /favicon.ico` redirecting to `/error`, that's the browser's icon
-  request (harmless). Otherwise test the key with the `curl` check above.
+- Seeing this for **every** city, including London? Test the key with the
+  `curl` check above. (A bad key normally shows "Weather data is unavailable"
+  instead, but it's a quick way to rule out the API.)
 
 ## Broken weather icon
 

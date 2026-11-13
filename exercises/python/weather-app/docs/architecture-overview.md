@@ -79,7 +79,7 @@ change between installs. There is no lock file.
 |---|---|---|
 | **Server-side rendering, no JS** | Simple; works everywhere; the API key never reaches the browser | Every search is a full page load |
 | **Post/Redirect/Get** for search | City pages get clean, bookmarkable URLs; refresh doesn't re-submit | One extra round trip |
-| **City name in the URL** (`/<city>`) | Shareable links | A catch-all route that also captures `/favicon.ico` and `POST /error` |
+| **City name in the URL** (`/<city>`) | Shareable links | A catch-all route: any other fixed path the browser asks for (like `/favicon.ico`, now its own route) needs a route of its own, or it's looked up as a city |
 | **Geocode first, then query by lat/lon** | OpenWeatherMap's recommended approach (querying weather by city name is deprecated) | Three API calls instead of two |
 | **Noon reading as the "day" forecast** | One value per day from the 3-hourly feed, cheaply | Noon UTC isn't noon locally; not a true daily low/high |
 | **Units from `UNITS`, default imperial** | The API does the conversion; labels come from one `UNIT_LABELS` table | Applies to the whole app, not per user; an unrecognized value silently means imperial (logged as a warning) |
@@ -115,17 +115,17 @@ change between installs. There is no lock file.
 
 | # | Limitation | Where | Impact |
 |---|---|---|---|
-| 1 | No input validation | `home()`, `get_weather()` | Whitespace-only search → 503 "unavailable" page (the API rejects the empty name) |
-| 2 | Catch-all `/<city>` route | routing | `/favicon.ico` costs a geocoding call; `POST /error` shows weather for "Error" |
-| 3 | Server-local "today" vs UTC forecast times | date logic | Wrong date for distant time zones; "noon" is noon UTC |
-| 4 | Min/max is the current reading's spread, not the daily range | current weather | Misleading low/high |
-| 5 | No caching | API access | Three API calls per view; free-tier rate limits apply |
-| 6 | Icons missing for `Dust`, `Sand`, `Ash`, `Squall` | `static/assets` | Broken image for those conditions |
-| 7 | Logging covers only API failures and config warnings | everywhere else | Other failures leave only Flask's traceback |
+| 1 | Server-local "today" vs UTC forecast times | date logic | Wrong date for distant time zones; "noon" is noon UTC |
+| 2 | Min/max is the current reading's spread, not the daily range | current weather | Misleading low/high |
+| 3 | No caching | API access | Three API calls per view; free-tier rate limits apply |
+| 4 | Icons missing for `Dust`, `Sand`, `Ash`, `Squall` | `static/assets` | Broken image for those conditions |
+| 5 | Logging covers only API failures and config warnings | everywhere else | Other failures leave only Flask's traceback |
 
 **Fixed:** unchecked API errors, uncaught network errors, a missing key
 crashing on every search, and missing timeouts. All three calls now go through
-`owm_get()`, and failures show a 503 page instead of a 500.
+`owm_get()`, and failures show a 503 page instead of a 500. Also fixed:
+whitespace-only searches (now back to the form), `/favicon.ico` lookups (own
+route, `204`), and `POST /error` (now `405`; `/<city>` is GET only).
 
 ## Where it's headed
 
@@ -146,6 +146,6 @@ This split pays off in several ways:
 - **Errors:** `owm_get()` and `WeatherAPIError` become the client's job; a
   `CityNotFound` exception can replace the no-match redirect logic.
 - **Testing:** the service can be tested with a fake client, without patching `requests`.
-- **Features:** caching (#5), daily low/high and local time (#3, #4, using the
+- **Features:** caching (#3), daily low/high and local time (#1, #2, using the
   forecast's `city.timezone` offset), and other weather providers each live in
   one place.

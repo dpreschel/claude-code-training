@@ -13,6 +13,7 @@ flowchart TD
         Home["home()<br/>GET, POST /"]
         Weather["get_weather(city)<br/>GET /#lt;city#gt;"]
         Error["error()<br/>GET /error"]
+        Favicon["favicon()<br/>GET /favicon.ico → 204"]
     end
 
     subgraph Templates["templates/ (Jinja2)"]
@@ -35,6 +36,7 @@ flowchart TD
     Browser -->|"HTTP"| Home
     Browser -->|"HTTP"| Weather
     Browser -->|"HTTP"| Error
+    Browser -->|"automatic icon request"| Favicon
     Browser -->|"loads"| Static
 
     Home -->|"renders"| IndexT
@@ -99,7 +101,9 @@ non-JSON reply), the request stops and the 503 page is shown.
 
 ```mermaid
 flowchart TD
-    Start(["GET /#lt;city#gt;"]) --> Format["Capitalize city name<br/>Format today's date"]
+    Start(["GET /#lt;city#gt;"]) --> Blank{"Name empty or<br/>only spaces?"}
+    Blank -->|"Yes"| Home(["Redirect to /<br/>no API calls"])
+    Blank -->|"No"| Format["Capitalize city name<br/>Format today's date"]
     Format --> GeoCall["Call Geocoding API<br/>q = city, limit = 3"]
     GeoCall --> GeoOK{"Call OK?"}
     GeoOK -->|"No"| Unavailable(["WeatherAPIError<br/>503: weather data unavailable"])

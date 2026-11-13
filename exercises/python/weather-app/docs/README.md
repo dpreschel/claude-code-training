@@ -197,7 +197,7 @@ Every endpoint, with full request/response details: [API.md](API.md).
 
 ```bash
 source .venv/bin/activate
-pytest                    # 42 passed, 2 xfailed
+pytest                    # 48 passed
 pytest -v                 # one line per test
 pytest -rx                # list the known bugs (xfail) with reasons
 pytest -k new_haven       # tests whose name matches
@@ -207,10 +207,12 @@ The tests never touch the network or need an API key. `tests/conftest.py`
 replaces `requests.get` with **FakeOWM**, which returns canned responses by
 endpoint URL and records every call so tests can check what the app sent.
 
-Tests marked **xfail** document known bugs that aren't fixed yet (e.g. the
-whitespace-only search; see [architecture-overview.md](architecture-overview.md#known-limitations)).
-They are strict: when a fix makes one pass, pytest reports **XPASS** as a
-failure, which is the cue to delete its `@known_bug` marker.
+To record a bug before fixing it, mark its test with `@known_bug("reason")`
+(a strict **xfail**, defined in `tests/test_main.py`). The run stays green while
+the bug exists. When a fix makes the test pass, pytest reports **XPASS** as a
+failure: the cue to delete the marker. Every bug tracked this way so far has
+been fixed; the remaining limitations are listed in
+[architecture-overview.md](architecture-overview.md#known-limitations).
 
 Coverage (optional):
 

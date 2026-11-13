@@ -10,8 +10,9 @@ Base URL in development: `http://127.0.0.1:5000`
 |---|---|---|---|
 | `GET` | [`/`](#get-) | `home()` | Search form |
 | `POST` | [`/`](#post-) | `home()` | Submit a search → redirect to `/<city>` |
-| `GET`, `POST` | [`/<city>`](#get-city) | `get_weather()` | Weather page for a city |
+| `GET` | [`/<city>`](#get-city) | `get_weather()` | Weather page for a city |
 | `GET` | [`/error`](#get-error) | `error()` | "City not found" page |
+| `GET` | [`/favicon.ico`](#get-faviconico) | `favicon()` | Empty `204` for the browser's icon request |
 | `GET` | [`/static/<path>`](#get-staticpath) | Flask built-in | CSS, images, icons |
 
 Flask also answers `HEAD` and `OPTIONS` for every route automatically.
@@ -45,14 +46,14 @@ Renders nothing itself and makes no API calls.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `search` | string | no | City name as typed. Passed through unchanged; title-casing happens on `/<city>`. |
+| `search` | string | no | City name. Leading and trailing spaces are trimmed; title-casing happens on `/<city>`. |
 
 **Responses**
 
 | Status | `Location` | When |
 |---|---|---|
-| `302 Found` | `/<city>`, percent-encoded | Any non-empty `search` |
-| `302 Found` | `/` | `search` empty or missing |
+| `302 Found` | `/<city>`, percent-encoded | `search` has any non-space text (`"  London "` → `/London`) |
+| `302 Found` | `/` | `search` empty, whitespace-only, or missing (no API calls) |
 
 ```bash
 $ curl -i -X POST -d 'search=London' http://127.0.0.1:5000/
@@ -68,15 +69,18 @@ HTTP/1.1 302 FOUND
 Location: /
 ```
 
-> **Known issue:** a whitespace-only search (`search=   `) redirects to
-> `/%20%20%20`, which shows the 503 "unavailable" page (see `/<city>` below).
+```bash
+$ curl -i -X POST --data-urlencode 'search=   ' http://127.0.0.1:5000/
+HTTP/1.1 302 FOUND
+Location: /
+```
 
 ---
 
 ## `GET /<city>`
 
 Looks the city up and renders the weather page (`templates/city.html`).
-`POST` is also accepted and behaves exactly like `GET`.
+GET only: `POST` gets `405 Method Not Allowed`.
 
 **Path parameter**
 
@@ -116,8 +120,9 @@ default `UNITS=imperial`; with `UNITS=metric` the page shows `ºC` and
 |---|---|
 | `200 OK` | City found and all three calls succeeded |
 | `302 Found` → `/error` | Geocoding returned no matches (an empty list) |
+| `302 Found` → `/` | The name is empty or only spaces (e.g. `/%20%20`); no API calls |
 | `404 Not Found` | Path has more than one segment (`/a/b`) |
-| `503 Service Unavailable` | Any OpenWeatherMap failure: key missing or invalid (401), rate limit (429), server error, network error, no answer within 10 seconds, or a reply that isn't JSON. Renders `error.html` with "Weather data is unavailable right now. Please try again later." The reason is logged on the server, with the API key redacted. Also returned for a whitespace-only city, which the API rejects (see [Known issues](#known-issues)). |
+| `503 Service Unavailable` | Any OpenWeatherMap failure: key missing or invalid (401), rate limit (429), server error, network error, no answer within 10 seconds, or a reply that isn't JSON. Renders `error.html` with "Weather data is unavailable right now. Please try again later." The reason is logged on the server, with the API key redacted. |
 
 ```bash
 $ curl -i http://127.0.0.1:5000/New%20Haven
@@ -151,9 +156,20 @@ calls. Normally reached by the redirect from `/<city>`.
 |---|---|
 | `200 OK` | Error page |
 
-> **Quirk:** `POST /error` does *not* reach this handler. `/error` only allows
-> `GET`, so Flask falls through to `/<city>` (which accepts `POST`) and shows the
-> weather for a place named "Error".
+`POST /error` returns `405 Method Not Allowed`.
+
+---
+
+## `GET /favicon.ico`
+
+Browsers request `/favicon.ico` automatically on every page. The app has no
+icon, so this returns **`204 No Content`** with an empty body, without a
+weather lookup. (Without this route, `/<city>` would treat `favicon.ico` as a
+city name and spend a geocoding call on each page load.)
+
+| Status | Body |
+|---|---|
+| `204 No Content` | Empty |
 
 ---
 
@@ -174,15 +190,17 @@ images, and the weather icons in `assets/`.
 | Request | Response |
 |---|---|
 | `PUT`, `DELETE`, `PATCH` on `/` | `405 Method Not Allowed`, `Allow: HEAD, POST, GET, OPTIONS` |
+| `POST` (or `PUT`, ...) on `/<city>` or `/error` | `405 Method Not Allowed`, `Allow: HEAD, OPTIONS, GET` |
 | `HEAD` on any route | Same status and headers as `GET`, no body (for `/<city>`, the three API calls still run) |
 
 ## Known issues
 
-These are documented by strict `xfail` tests in `tests/test_main.py`:
+None of these affects the HTTP interface; they change what a weather page
+shows. See [architecture-overview.md](architecture-overview.md#known-limitations)
+for the full list and [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for symptoms.
 
 | Issue | Effect |
 |---|---|
-| Whitespace-only city | 503 "unavailable" page instead of returning to the search form |
-| `/favicon.ico` (requested automatically by browsers) is treated as a city | One wasted geocoding call per page load; redirects to `/error` |
-
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for symptoms and fixes.
+| "Today" uses the server's date; forecast "noon" is 12:00 UTC | Wrong date or night-time readings for distant cities |
+| Min/max is the current reading's spread | Not the day's low and high |
+| No icons for `Dust`, `Sand`, `Ash`, `Squall` | Broken image for those conditions |

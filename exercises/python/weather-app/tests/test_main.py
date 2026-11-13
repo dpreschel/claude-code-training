@@ -43,10 +43,20 @@ class TestHome:
         assert response.headers["Location"] == "/"
         assert owm.calls == []
 
-    @known_bug("whitespace-only search is passed to the API and ends in a 500")
-    def test_whitespace_search_returns_home(self, client):
+    def test_whitespace_search_returns_home(self, client, owm):
         response = client.post("/", data={"search": "   "})
         assert response.headers["Location"] == "/"
+        assert owm.calls == []
+
+    def test_search_trims_surrounding_spaces(self, client):
+        response = client.post("/", data={"search": "  London  "})
+        assert response.headers["Location"] == "/London"
+
+    def test_whitespace_city_url_returns_home(self, client, owm):
+        response = client.get("/%20%20%20")
+        assert response.status_code == 302
+        assert response.headers["Location"] == "/"
+        assert owm.calls == []
 
 
 # --- City weather page: happy path --------------------------------------------
@@ -266,7 +276,14 @@ class TestErrors:
         assert "test-key" not in caplog.text
         assert "appid=<redacted>" in caplog.text
 
-    @known_bug("the browser's /favicon.ico request is treated as a city lookup")
     def test_favicon_does_not_call_api(self, client, owm):
-        client.get("/favicon.ico")
+        response = client.get("/favicon.ico")
+        assert response.status_code == 204
+        assert owm.calls == []
+
+    @pytest.mark.parametrize("path", ["/error", "/London"])
+    def test_post_to_city_or_error_is_not_allowed(self, client, owm, path):
+        """POST /error used to fall through to /<city> as a city named "Error"."""
+        response = client.post(path)
+        assert response.status_code == 405
         assert owm.calls == []

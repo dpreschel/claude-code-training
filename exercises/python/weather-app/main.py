@@ -115,17 +115,32 @@ def home():
     lands on a bookmarkable URL (/London) and refreshing doesn't re-submit.
     """
     if request.method == "POST":
-        city = request.form.get("search")
+        # Trim spaces; an empty or whitespace-only search just returns here
+        # instead of sending a blank name to the API.
+        city = (request.form.get("search") or "").strip()
+        if not city:
+            return redirect(url_for("home"))
         # url_for percent-encodes the name ("New York" -> /New%20York).
-        # An empty search builds "/" and simply returns to this page.
         return redirect(url_for("get_weather", city=city))
     return render_template("index.html")
 
 
-# Catch-all for any single path segment, so /favicon.ico or /robots.txt is
-# also treated as a city name. /error and /static/... take precedence because
-# Flask matches fixed paths before variable ones.
-@app.route("/<city>", methods=["GET", "POST"])
+@app.route("/favicon.ico")
+def favicon():
+    """Answer the browser's automatic icon request without a city lookup.
+
+    Without this route, /<city> would treat "favicon.ico" as a city and spend
+    a geocoding call on every page load. 204 = nothing here, and unlike a 404
+    it doesn't log an error in the browser console.
+    """
+    return "", 204
+
+
+# Catch-all for any single path segment. Fixed paths (/error, /favicon.ico,
+# /static/...) take precedence because Flask matches them before variable ones.
+# GET only: the search form posts to "/", and allowing POST here made
+# POST /error fall through to this route as a city named "Error".
+@app.route("/<city>")
 def get_weather(city):
     """Render current weather and a 4-day noon forecast for ``city``.
 
@@ -133,7 +148,12 @@ def get_weather(city):
     key, rate limit, network error) raises WeatherAPIError from owm_get(),
     which weather_api_unavailable() turns into a 503 page.
     """
+    # A hand-typed URL such as /%20%20 has no name to look up: back to the form.
+    if not city.strip():
+        return redirect(url_for("home"))
+
     # "new haven" -> "New Haven", used both for display and for the API query.
+    # capwords also trims and collapses extra spaces.
     city_name = string.capwords(city)
     # Server-local time, not the city's: the date shown can be off by a day
     # for cities in distant time zones.
