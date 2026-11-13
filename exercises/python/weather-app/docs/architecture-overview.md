@@ -42,9 +42,9 @@ A search for "new haven", end to end:
    server's clock.
 4. **Geocode:** `GET /geo/1.0/direct?q=New Haven&limit=3`. An empty list
    redirects to `/error`. Otherwise the first match gives `lat`, `lon`.
-5. **Current weather:** `GET /data/2.5/weather?lat&lon&units=metric`.
+5. **Current weather:** `GET /data/2.5/weather?lat&lon&units=imperial`.
    `raise_for_status()`, then pick temperature, condition, min/max, wind.
-6. **Forecast:** `GET /data/2.5/forecast?lat&lon&units=metric` returns 40
+6. **Forecast:** `GET /data/2.5/forecast?lat&lon&units=imperial` returns 40
    entries (every 3 hours for 5 days). Keep entries timestamped `12:00:00`
    whose date isn't today, then take the first 4.
 7. **Render** `city.html` with nine template variables. The browser then loads
@@ -79,7 +79,7 @@ change between installs. There is no lock file.
 | **City name in the URL** (`/<city>`) | Shareable links | A catch-all route that also captures `/favicon.ico` and `POST /error` |
 | **Geocode first, then query by lat/lon** | OpenWeatherMap's recommended approach (querying weather by city name is deprecated) | Three API calls instead of two |
 | **Noon reading as the "day" forecast** | One value per day from the 3-hourly feed, cheaply | Noon UTC isn't noon locally; not a true daily low/high |
-| **Metric units, hard-coded** | Simplicity | No °F option |
+| **Imperial units, hard-coded** | Simplicity; US audience | No °C option without editing `main.py` and `city.html` |
 | **Single module** | Easy to read in one sitting | Routes, API access and data shaping are mixed together (see below) |
 
 ## Configuration and secrets

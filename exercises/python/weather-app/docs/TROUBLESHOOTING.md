@@ -177,7 +177,7 @@ The first forecast column always shows *today* using the current conditions,
 followed by up to four later days. Fewer than four means the API returned
 fewer noon entries, which can happen near the end of its 5-day window.
 
-## Min/max looks wrong ("1° - 4°" in summer)
+## Min/max range looks too narrow ("40° - 43°")
 
 **Why:** those values are the current reading's `temp_min`/`temp_max`, which is the
 spread across the city area **right now**, not the day's low and high. This is

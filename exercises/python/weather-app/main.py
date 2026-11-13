@@ -89,12 +89,13 @@ def get_weather(city):
         lon = location_data[0]['lon']
 
     # --- 2. Current weather ---------------------------------------------------
-    # Shared by both weather calls. units=metric gives °C and metres/second.
+    # Shared by both weather calls. units=imperial gives °F and miles/hour
+    # (the labels in templates/city.html assume this).
     weather_params = {
         "lat": lat,
         "lon": lon,
         "appid": api_key,
-        "units": "metric",
+        "units": "imperial",
     }
     weather_response = requests.get(OWM_ENDPOINT, weather_params)
     # Raises HTTPError on 4xx/5xx; nothing catches it, so Flask returns a 500.

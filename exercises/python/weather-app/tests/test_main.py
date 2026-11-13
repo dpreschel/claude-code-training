@@ -57,10 +57,10 @@ class TestCityPage:
         assert response.status_code == 200
         html = response.get_data(as_text=True)
         assert "<h1> London </h1>" in html
-        assert "3ºC" in html                     # 3.4 rounded
+        assert "3ºF" in html                     # 3.4 rounded
         assert "Clear" in html
         assert "1° - 5°" in html                 # temp_min 1.2, temp_max 4.6, rounded
-        assert "0.79 meter/sec" in html
+        assert "0.79 mph" in html
 
     def test_shows_todays_date_and_weekday(self, client):
         html = client.get("/London").get_data(as_text=True)
@@ -114,7 +114,7 @@ class TestCityPage:
         client.get("/Springfield")
         for call in owm.calls[1:]:
             assert (call["params"]["lat"], call["params"]["lon"]) == (1.0, 2.0)
-            assert call["params"]["units"] == "metric"
+            assert call["params"]["units"] == "imperial"
 
 
 # --- Forecast selection ----------------------------------------------------------

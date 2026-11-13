@@ -24,7 +24,7 @@ go to a friendly "city not found" page.
 ## Features
 
 - Search any city by name; the name is title-cased (`new haven` → `New Haven`)
-- Current conditions: temperature (°C), condition with icon, min/max, wind (m/s)
+- Current conditions: temperature (°F), condition with icon, min/max, wind (mph)
 - 4-day forecast using each day's 12:00 (UTC) reading
 - Bookmarkable city URLs: `http://127.0.0.1:5000/London`
 - Responsive layout (CSS grid, flexbox, media queries); no JavaScript
@@ -165,8 +165,8 @@ Fetch a city page and strip the HTML to see the data:
 
 ```bash
 $ curl -s http://127.0.0.1:5000/New%20Haven | sed -e 's/<[^>]*>/ /g' | tr -s ' \n' ' '
- Weather Forecast CHANGE CITY New Haven Friday, November 13 6ºC Clouds 4° - 6°
- 5.66 meter/sec 5-DAY FORECAST Fri 6º Sat 1º Sun 2º Mon 1º Tue 1º ...
+ Weather Forecast CHANGE CITY New Haven Friday, November 13 42ºF Clouds 40° - 43°
+ 5.75 mph 5-DAY FORECAST Fri 42º Sat 34º Sun 36º Mon 34º Tue 33º ...
 ```
 
 An unknown city:
@@ -230,7 +230,7 @@ allows arbitrary code execution from the browser.
 | Setting | Where | Default | Notes |
 |---|---|---|---|
 | `OWM_API_KEY` | env var or `.env` | *(none)* | Required. Read once at startup. Not validated: a missing key shows up as an error on the first search. |
-| Units | `main.py` (`units: metric`) | metric | °C and m/s. Change to `imperial` for °F and mph (the templates' unit labels would need updating too). |
+| Units | `main.py` (`"units": "imperial"`) | imperial | °F and mph. For °C and m/s, set `metric` and change the `ºF` and `mph` labels in `templates/city.html`. |
 | Port | `flask run --port` | 5000 | |
 
 ## Further reading

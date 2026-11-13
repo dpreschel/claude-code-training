@@ -78,9 +78,9 @@ sequenceDiagram
         Flask-->>Browser: error.html
     else At least one match
         Note over Flask: Use lat and lon of the first match
-        Flask->>Current: GET /data/2.5/weather (lat, lon, units=metric)
+        Flask->>Current: GET /data/2.5/weather (lat, lon, units=imperial)
         Current-->>Flask: temp, min, max, wind, condition
-        Flask->>Forecast: GET /data/2.5/forecast (lat, lon, units=metric)
+        Flask->>Forecast: GET /data/2.5/forecast (lat, lon, units=imperial)
         Forecast-->>Flask: 3-hourly entries for 5 days
         Note over Flask: Keep the 12:00 entries for the next 4 days
         Flask-->>Browser: city.html
@@ -102,7 +102,7 @@ flowchart TD
     GeoCall --> Found{"Any matches?"}
     Found -->|"No"| ErrorPage(["Redirect to /error"])
     Found -->|"Yes"| Coords["Take lat and lon<br/>of the first match"]
-    Coords --> CurCall["Call Current Weather API<br/>units = metric"]
+    Coords --> CurCall["Call Current Weather API<br/>units = imperial"]
     CurCall --> Status{"HTTP status OK?"}
     Status -->|"No"| Raise(["raise_for_status()<br/>HTTPError, 500 response"])
     Status -->|"Yes"| Extract["Extract temp, min, max,<br/>wind speed, condition"]
