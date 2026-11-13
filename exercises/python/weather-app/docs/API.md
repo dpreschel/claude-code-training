@@ -90,10 +90,12 @@ the configured `OWM_API_KEY`:
 | # | OpenWeatherMap endpoint | Parameters sent | Used for |
 |---|---|---|---|
 | 1 | `GET /geo/1.0/direct` | `q=<City Name>`, `limit=3`, `appid` | Latitude and longitude of the **first** match |
-| 2 | `GET /data/2.5/weather` | `lat`, `lon`, `units=imperial`, `appid` | Current conditions |
-| 3 | `GET /data/2.5/forecast` | `lat`, `lon`, `units=imperial`, `appid` | 4-day forecast |
+| 2 | `GET /data/2.5/weather` | `lat`, `lon`, `units` (from `UNITS`), `appid` | Current conditions |
+| 3 | `GET /data/2.5/forecast` | `lat`, `lon`, `units` (from `UNITS`), `appid` | 4-day forecast |
 
-All three go to `https://api.openweathermap.org`.
+All three go to `https://api.openweathermap.org`. Examples below use the
+default `UNITS=imperial`; with `UNITS=metric` the page shows `ºC` and
+`meter/sec` instead of `ºF` and `mph`.
 
 **Page contents (`city.html`)**
 
@@ -101,10 +103,10 @@ All three go to `https://api.openweathermap.org`.
 |---|---|---|
 | City heading | `capwords(city)` | `New Haven` |
 | Date | Server's local clock | `Friday, November 13` |
-| Current temperature | `main.temp` (call 2) | Rounded, `42ºF` |
+| Current temperature | `main.temp` (call 2) | Rounded, `42ºF` (`ºC` if metric) |
 | Condition + icon | `weather[0].main` (call 2) | `Clouds`, icon `static/assets/clouds.png` |
 | Min - max | `main.temp_min`, `main.temp_max` (call 2) | Rounded, `40° - 43°` |
-| Wind | `wind.speed` (call 2) | `5.75 mph` |
+| Wind | `wind.speed` (call 2) | `5.75 mph` (`meter/sec` if metric) |
 | Forecast, first column | Today's weekday + current conditions | `Fri 42º` |
 | Forecast, next 4 columns | Entries with `dt_txt` ending `12:00:00`, excluding today's date (call 3) | `Sat 34º` |
 

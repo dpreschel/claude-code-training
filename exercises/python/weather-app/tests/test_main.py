@@ -117,6 +117,43 @@ class TestCityPage:
             assert call["params"]["units"] == "imperial"
 
 
+# --- UNITS setting -------------------------------------------------------------
+
+class TestUnits:
+    def test_imperial_labels_by_default(self, client, owm):
+        html = client.get("/London").get_data(as_text=True)
+        assert "3ºF" in html
+        assert "0.79 mph" in html
+        assert {c["params"]["units"] for c in owm.calls[1:]} == {"imperial"}
+
+    def test_metric_changes_api_units_and_labels(self, client, owm, monkeypatch):
+        monkeypatch.setattr(main, "UNITS", "metric")
+        html = client.get("/London").get_data(as_text=True)
+        assert "3ºC" in html
+        assert "0.79 meter/sec" in html
+        assert "ºF" not in html and " mph" not in html
+        assert {c["params"]["units"] for c in owm.calls[1:]} == {"metric"}
+
+    @pytest.mark.parametrize("raw, expected", [
+        (None, "imperial"),          # UNITS not set
+        ("", "imperial"),
+        ("metric", "metric"),
+        ("  Metric ", "metric"),     # case and whitespace forgiven
+        ("IMPERIAL", "imperial"),
+    ])
+    def test_load_units_accepts(self, raw, expected):
+        assert main.load_units(raw) == expected
+
+    @pytest.mark.parametrize("raw", ["xxx", "celsius", "standard", "metrc"])
+    def test_unrecognized_units_fall_back_to_imperial_with_warning(self, raw, caplog):
+        assert main.load_units(raw) == "imperial"
+        assert "using imperial" in caplog.text
+
+    def test_unset_units_fall_back_quietly(self, caplog):
+        assert main.load_units(None) == "imperial"
+        assert caplog.text == ""
+
+
 # --- Forecast selection ----------------------------------------------------------
 
 class TestForecast:

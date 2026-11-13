@@ -24,7 +24,8 @@ go to a friendly "city not found" page.
 ## Features
 
 - Search any city by name; the name is title-cased (`new haven` → `New Haven`)
-- Current conditions: temperature (°F), condition with icon, min/max, wind (mph)
+- Current conditions: temperature, condition with icon, min/max, wind
+  (°F and mph by default, or °C and m/s with `UNITS=metric`)
 - 4-day forecast using each day's 12:00 (UTC) reading
 - Bookmarkable city URLs: `http://127.0.0.1:5000/London`
 - Responsive layout (CSS grid, flexbox, media queries); no JavaScript
@@ -61,7 +62,8 @@ weather-app/
 ├── requirements-dev.txt    # + test dependencies
 ├── pytest.ini              # Test discovery settings
 ├── Procfile                # gunicorn command for Heroku-style hosts
-└── .env                    # Your API key (create it; gitignored)
+├── .env.example            # Template for .env (committed)
+└── .env                    # Your settings and API key (create it; gitignored)
 ```
 
 ---
@@ -95,16 +97,25 @@ With [uv](https://docs.astral.sh/uv/) instead:
 uv venv .venv && uv pip install -p .venv -r requirements-dev.txt
 ```
 
-### 3. Configure the API key
+### 3. Configure `.env`
 
-Create a file named `.env` in the `weather-app` folder:
+Copy the template and put your key in it:
 
-```text
-OWM_API_KEY=your-api-key-here
+```bash
+cp .env.example .env
 ```
 
-`.env` is gitignored. A real environment variable named `OWM_API_KEY` works too
-and takes precedence over the file.
+```text
+OWM_API_KEY=your-api-key-here   # required
+UNITS=imperial                  # imperial (°F, mph) or metric (°C, m/s)
+FLASK_RUN_PORT=5000             # dev server port
+```
+
+Only `OWM_API_KEY` is required; the other two have defaults. See the
+[configuration reference](#configuration-reference) for details.
+
+`.env` is gitignored. Real environment variables with the same names work too
+and take precedence over the file.
 
 ### 4. Run
 
@@ -112,11 +123,11 @@ and takes precedence over the file.
 flask --app main run --debug
 ```
 
-Open <http://127.0.0.1:5000>.
+Open <http://127.0.0.1:5000> (or the port you set in `FLASK_RUN_PORT`).
 
 > **macOS:** use `127.0.0.1:5000`, not `localhost:5000`. AirPlay Receiver also
-> listens on port 5000 and answers `localhost`. Alternatively run on another
-> port with `--port 5001`, or turn AirPlay Receiver off.
+> listens on port 5000 and answers `localhost`. Alternatively set
+> `FLASK_RUN_PORT=5001` in `.env`, or turn AirPlay Receiver off.
 
 `--debug` enables the auto-reloader and the in-browser debugger. The reloader
 watches `.py` files only: **restart the server after editing `.env`.**
@@ -227,11 +238,28 @@ allows arbitrary code execution from the browser.
 
 ## Configuration reference
 
-| Setting | Where | Default | Notes |
+All settings go in `.env` (template: `.env.example`) or in real environment
+variables, which take precedence. They're read **once at startup**: restart the
+server after changing them.
+
+| Setting | Values | Default | Notes |
 |---|---|---|---|
-| `OWM_API_KEY` | env var or `.env` | *(none)* | Required. Read once at startup. Not validated: a missing key shows up as an error on the first search. |
-| Units | `main.py` (`"units": "imperial"`) | imperial | °F and mph. For °C and m/s, set `metric` and change the `ºF` and `mph` labels in `templates/city.html`. |
-| Port | `flask run --port` | 5000 | |
+| `OWM_API_KEY` | your key | *(none)* | **Required.** Not validated: a missing key shows up as an error on the first search. |
+| `UNITS` | `imperial`, `metric` | `imperial` | `imperial`: °F and mph. `metric`: °C and meter/sec. Sent to OpenWeatherMap, which converts the numbers; the page labels follow automatically. Case-insensitive. **Any other value also means imperial**, and the server logs a warning (e.g. `UNITS='xxx' is not 'metric' or 'imperial'; using imperial`). |
+| `FLASK_RUN_PORT` | port number | `5000` | Used by `flask run` and `python main.py`. A `--port` flag on the command line overrides it. Not used by gunicorn, which binds to `$PORT` or its `--bind` option. |
+
+Examples:
+
+```text
+# Celsius on port 5001
+UNITS=metric
+FLASK_RUN_PORT=5001
+```
+
+```bash
+# One-off override without editing .env
+UNITS=metric flask --app main run --debug --port 5002
+```
 
 ## Further reading
 

@@ -19,6 +19,7 @@ and this guide is organized by those messages.
 | `ModuleNotFoundError: flask` | Virtual environment not active | [Missing modules](#modulenotfounderror) |
 | Every city goes to "does not exist" | Real no-match, or a typo | [City not found](#a-real-city-shows-this-city-does-not-exist) |
 | Broken weather icon | Condition without an icon | [Broken icon](#broken-weather-icon) |
+| °F shown although `UNITS=metric` | Typo, or server not restarted | [Wrong units](#wrong-units-f-instead-of-c-or-the-reverse) |
 | Wrong date / odd forecast days | Time zone handling | [Dates and forecast](#wrong-date-or-unexpected-forecast-days) |
 
 ---
@@ -107,7 +108,7 @@ settings, then retry. Press Ctrl+C to stop a hung dev server.
 **Fixes (pick one):**
 
 - Use `http://127.0.0.1:5000`.
-- Run on another port: `flask --app main run --debug --port 5001`.
+- Use another port: set `FLASK_RUN_PORT=5001` in `.env` (or pass `--port 5001`).
 - Turn it off: System Settings → General → AirDrop & Handoff → AirPlay Receiver.
 
 Check what owns the port: `lsof -nP -iTCP:5000 -sTCP:LISTEN` (`ControlCe` is AirPlay).
@@ -122,7 +123,7 @@ Check what owns the port: `lsof -nP -iTCP:5000 -sTCP:LISTEN` (`ControlCe` is Air
 ```bash
 lsof -nP -iTCP:5000 -sTCP:LISTEN      # find it
 kill <PID>                            # stop it
-# or simply: flask --app main run --debug --port 5001
+# or use another port: FLASK_RUN_PORT=5001 in .env (or --port 5001)
 ```
 
 ## ModuleNotFoundError
@@ -164,6 +165,19 @@ OpenWeatherMap can also report **Dust, Sand, Ash, Squall**, which have no icon.
 
 **Fix:** add a PNG with that name (lowercase) to `static/assets/`, or map the
 missing conditions to an existing icon in the template.
+
+## Wrong units (°F instead of °C, or the reverse)
+
+**Why:** `UNITS` is read once at startup, and anything other than `metric` or
+`imperial` means imperial.
+
+**Fix:**
+
+1. Check the spelling in `.env`: `UNITS=metric` (case doesn't matter). On a typo,
+   the server logs `UNITS='...' is not 'metric' or 'imperial'; using imperial`
+   at startup.
+2. Check for an environment variable that overrides `.env`: `echo $UNITS`.
+3. Restart the server.
 
 ## Wrong date or unexpected forecast days
 

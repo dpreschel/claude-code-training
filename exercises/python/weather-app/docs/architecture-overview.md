@@ -42,9 +42,9 @@ A search for "new haven", end to end:
    server's clock.
 4. **Geocode:** `GET /geo/1.0/direct?q=New Haven&limit=3`. An empty list
    redirects to `/error`. Otherwise the first match gives `lat`, `lon`.
-5. **Current weather:** `GET /data/2.5/weather?lat&lon&units=imperial`.
+5. **Current weather:** `GET /data/2.5/weather?lat&lon&units=<UNITS>`.
    `raise_for_status()`, then pick temperature, condition, min/max, wind.
-6. **Forecast:** `GET /data/2.5/forecast?lat&lon&units=imperial` returns 40
+6. **Forecast:** `GET /data/2.5/forecast?lat&lon&units=<UNITS>` returns 40
    entries (every 3 hours for 5 days). Keep entries timestamped `12:00:00`
    whose date isn't today, then take the first 4.
 7. **Render** `city.html` with nine template variables. The browser then loads
@@ -79,13 +79,15 @@ change between installs. There is no lock file.
 | **City name in the URL** (`/<city>`) | Shareable links | A catch-all route that also captures `/favicon.ico` and `POST /error` |
 | **Geocode first, then query by lat/lon** | OpenWeatherMap's recommended approach (querying weather by city name is deprecated) | Three API calls instead of two |
 | **Noon reading as the "day" forecast** | One value per day from the 3-hourly feed, cheaply | Noon UTC isn't noon locally; not a true daily low/high |
-| **Imperial units, hard-coded** | Simplicity; US audience | No °C option without editing `main.py` and `city.html` |
+| **Units from `UNITS`, default imperial** | The API does the conversion; labels come from one `UNIT_LABELS` table | Applies to the whole app, not per user; an unrecognized value silently means imperial (logged as a warning) |
 | **Single module** | Easy to read in one sitting | Routes, API access and data shaping are mixed together (see below) |
 
 ## Configuration and secrets
 
-- `OWM_API_KEY` is read **once, at import time**. Changing `.env` requires a
-  restart.
+- Settings come from `.env` (template: `.env.example`) or real environment
+  variables, which win: `OWM_API_KEY`, `UNITS` (imperial/metric) and
+  `FLASK_RUN_PORT` (dev server port).
+- They're read **once, at import time**. Changing `.env` requires a restart.
 - The key is sent to OpenWeatherMap as the `appid` query parameter (the API
   requires this), over HTTPS. It's never rendered into pages.
 - `.env` is gitignored. In production, set the key as an environment variable

@@ -12,6 +12,7 @@ See docs/architecture-overview.md and docs/API.md.
 Configuration: OWM_API_KEY, read from the environment or a .env file.
 """
 import datetime
+import logging
 import requests
 import string
 from flask import Flask, render_template, request, redirect, url_for
@@ -31,6 +32,33 @@ GEOCODING_API_ENDPOINT = "https://api.openweathermap.org/geo/1.0/direct"
 # later as a 401 from the API (see docs/TROUBLESHOOTING.md).
 api_key = os.getenv("OWM_API_KEY")
 # api_key = os.environ.get("OWM_API_KEY")
+
+# Display labels for each OpenWeatherMap unit system. The API converts the
+# numbers; these just tell city.html what to print after them.
+UNIT_LABELS = {
+    "imperial": {"temp": "ºF", "speed": "mph"},
+    "metric": {"temp": "ºC", "speed": "meter/sec"},
+}
+
+
+def load_units(value):
+    """Normalize the UNITS setting. Anything but metric/imperial means imperial.
+
+    Unset or empty falls back quietly; an unrecognized value (a typo such as
+    "metrc") falls back with a warning so it doesn't go unnoticed.
+    """
+    units = (value or "").strip().lower()
+    if units in UNIT_LABELS:
+        return units
+    if units:
+        logging.getLogger(__name__).warning(
+            "UNITS=%r is not 'metric' or 'imperial'; using imperial", value)
+    return "imperial"
+
+
+# UNITS from .env or the environment: "imperial" (default, °F and mph) or
+# "metric" (°C and m/s).
+UNITS = load_units(os.getenv("UNITS"))
 
 app = Flask(__name__)
 
@@ -89,13 +117,13 @@ def get_weather(city):
         lon = location_data[0]['lon']
 
     # --- 2. Current weather ---------------------------------------------------
-    # Shared by both weather calls. units=imperial gives °F and miles/hour
-    # (the labels in templates/city.html assume this).
+    # Shared by both weather calls. UNITS decides what the API returns
+    # (imperial: °F and miles/hour; metric: °C and metres/second).
     weather_params = {
         "lat": lat,
         "lon": lon,
         "appid": api_key,
-        "units": "imperial",
+        "units": UNITS,
     }
     weather_response = requests.get(OWM_ENDPOINT, weather_params)
     # Raises HTTPError on 4xx/5xx; nothing catches it, so Flask returns a 500.
@@ -135,7 +163,7 @@ def get_weather(city):
     # today_label heads the first forecast column, which reuses current conditions.
     return render_template("city.html", city_name=city_name, current_date=current_date, current_temp=current_temp,
                            current_weather=current_weather, min_temp=min_temp, max_temp=max_temp, wind_speed=wind_speed,
-                           today_label=today.strftime("%a"), forecast=forecast)
+                           today_label=today.strftime("%a"), forecast=forecast, units=UNIT_LABELS[UNITS])
 
 
 @app.route("/error")
@@ -147,4 +175,6 @@ def error():
 if __name__ == "__main__":
     # Local development only (`python main.py`). Production uses the Procfile:
     # `gunicorn main:app`, which never runs this block.
-    app.run(debug=True)
+    # FLASK_RUN_PORT is the same setting `flask run` reads from .env, so both
+    # ways of starting the dev server use the same port.
+    app.run(debug=True, port=int(os.getenv("FLASK_RUN_PORT", "5000")))

@@ -92,6 +92,8 @@ def owm(monkeypatch):
     fake = FakeOWM()
     monkeypatch.setattr(main.requests, "get", fake)
     monkeypatch.setattr(main, "api_key", "test-key")
+    # Pin units so a UNITS line in your .env can't change test results.
+    monkeypatch.setattr(main, "UNITS", "imperial")
     return fake
 
 
